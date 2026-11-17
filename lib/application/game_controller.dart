@@ -43,6 +43,32 @@ final class RubricOutcome {
       'sinerji: $synergyXp)';
 }
 
+/// Plan bloğu tamamlamanın sonucu (kutlama/snackbar için).
+final class ScheduleOutcome {
+  const ScheduleOutcome({
+    required this.partnerId,
+    required this.block,
+    required this.xpGained,
+    required this.leveledUp,
+    required this.alreadyCompleted,
+  });
+
+  final String partnerId;
+  final ScheduleBlock block;
+
+  /// Bu dokunuşla kazanılan XP (gün içinde tekrar tamamlamada 0).
+  final int xpGained;
+
+  final bool leveledUp;
+
+  /// Blok bugün daha önce tamamlanmış mıydı?
+  final bool alreadyCompleted;
+
+  @override
+  String toString() =>
+      'ScheduleOutcome($partnerId · ${block.title} · +$xpGained XP)';
+}
+
 /// Oyun döngüsünün tek yöneticisi.
 ///
 /// Tüm mutasyonlar burada toplanır: onboarding, görev tamamlama, gelişim
@@ -309,6 +335,157 @@ final class GameController extends Notifier<GameState> {
       then: (GameState current) =>
           current.withCouple(current.couple.addBonusAction(log)),
     );
+  }
+
+  // ── Haftalık plan (senkron program) ──────────────────────────────────────
+
+  /// Plan bloğunu **bugün için** tamamlar.
+  ///
+  /// Partnerin bloğun kategorisine karşılık gelen statına +25 XP verilir ve
+  /// sohbete kanıt rozeti düşülür. Aynı blok aynı gün ikinci kez
+  /// tamamlanırsa XP verilmez (puan avcılığını engeller).
+  ScheduleOutcome? completeScheduleBlock(String blockId) {
+    final ScheduleBlock? block = state.couple.blockById(blockId);
+    if (block == null) return null;
+
+    final DateTime now = DateTime.now();
+    final bool alreadyCompleted = block.isCompletedOn(now);
+    if (alreadyCompleted) {
+      final CoupleState reset = state.couple.completeScheduleBlock(blockId, now);
+      if (!identical(reset, state.couple)) {
+        state = state.withCouple(reset);
+        _persist();
+      }
+      return ScheduleOutcome(
+        partnerId: block.partnerId,
+        block: block,
+        xpGained: 0,
+        leveledUp: false,
+        alreadyCompleted: true,
+      );
+    }
+
+    final ChatMessage badge = ChatMessage(
+      id: _newMessageId('plan'),
+      senderId: block.partnerId,
+      createdAt: now,
+      text: '${block.title} planını tamamladım! 💪',
+      questBadgeTitle: block.title,
+      earnedPoints: SchedulePlanner.completionXp,
+      kind: ChatMessageKind.questShare,
+    );
+
+    final XpAward? award = _awardPartner(
+      partnerId: block.partnerId,
+      stat: block.category.stat,
+      xp: SchedulePlanner.completionXp,
+      at: now,
+      then: (GameState current) => current.withCouple(
+        current.couple.completeScheduleBlock(blockId, now).addMessage(badge),
+      ),
+    );
+    if (award == null) return null;
+
+    return ScheduleOutcome(
+      partnerId: block.partnerId,
+      block: block,
+      xpGained: award.xpGained,
+      leveledUp: award.leveledUp,
+      alreadyCompleted: false,
+    );
+  }
+
+  /// Yeni plan blokları ekler (💑 "İkimiz Birden" için iki blok birden).
+  int addScheduleBlocks(Iterable<ScheduleBlock> blocks) {
+    final List<ScheduleBlock> valid = blocks
+        .where(
+          (ScheduleBlock block) =>
+              block.title.trim().isNotEmpty &&
+              block.endMinutes > block.startMinutes,
+        )
+        .toList(growable: false);
+    if (valid.isEmpty) return 0;
+    state = state.withCouple(state.couple.addScheduleBlocks(valid));
+    _persist();
+    return valid.length;
+  }
+
+  void removeScheduleBlock(String blockId) {
+    final CoupleState next = state.couple.removeScheduleBlock(blockId);
+    if (identical(next, state.couple)) return;
+    state = state.withCouple(next);
+    _persist();
+  }
+
+  /// Şu anki (yoksa sıradaki) plan bloğunu sohbete görsel kanıt olarak atar.
+  ///
+  /// Kanıt kartı, bloğun kategorisine uygun gradient görsel + saat rozetiyle
+  /// gönderilir; böylece albümde "Plan & Görev Kanıtları" filtresinde görünür.
+  ChatMessage? sendScheduleProof({String? partnerId, String? blockId}) {
+    final String id = partnerId ?? state.activePartnerId;
+    final DateTime now = DateTime.now();
+    final ScheduleBlock? block = blockId != null
+        ? state.couple.blockById(blockId)
+        : state.couple.currentBlockFor(id, now) ??
+              state.couple.nextBlockFor(id, now);
+    if (block == null) return null;
+
+    final bool live = block.isActiveAt(now);
+    final ChatMessage message = ChatMessage(
+      id: _newMessageId('proof'),
+      senderId: block.partnerId,
+      createdAt: now,
+      photoDataOrUrl: block.category.presetSource,
+      photoCaption:
+          '${block.weekdayShortLabel} ${block.timeRangeLabel} • '
+          '${block.category.emoji} ${block.category.shortLabel} Kanıtı',
+      questBadgeTitle: block.title,
+      text: live
+          ? '${block.category.emoji} ${block.category.shortLabel} · '
+                'şu an kanıt paylaşıldı'
+          : 'Sıradaki plan · ${block.weekdayShortLabel} '
+                '${block.timeRangeLabel}',
+      kind: ChatMessageKind.proof,
+    );
+    return _appendMessage(message);
+  }
+
+  // ── Ödül kapsülleri ──────────────────────────────────────────────────────
+
+  /// Eşiği dolmuş kapsülü açar. Kilitliyse `false` döner.
+  bool openRewardCapsule(String capsuleId) {
+    final CoupleState next = state.couple.openCapsule(capsuleId);
+    if (identical(next, state.couple)) return false;
+    state = state.withCouple(next);
+    _persist();
+    return true;
+  }
+
+  /// Yusuf & Ceyda'nın kendi ödül kapsülünü ekler.
+  RewardCapsule? addRewardCapsule({
+    required String title,
+    required int requiredPoints,
+    String emoji = '🎁',
+    String description = '',
+    String rewardMessage = '',
+  }) {
+    final String trimmed = title.trim();
+    if (trimmed.isEmpty || requiredPoints <= 0) return null;
+    final String cleanEmoji = emoji.trim().isEmpty ? '🎁' : emoji.trim();
+    final RewardCapsule capsule = RewardCapsule(
+      id: 'capsule-${DateTime.now().microsecondsSinceEpoch}',
+      title: trimmed,
+      emoji: cleanEmoji,
+      description: description.trim(),
+      requiredPoints: requiredPoints,
+      rewardMessage: rewardMessage.trim().isEmpty
+          ? trimmed
+          : rewardMessage.trim(),
+      isCustom: true,
+    );
+    state = state.withCouple(state.couple.addCapsule(capsule));
+    _persist();
+    return capsule;
   }
 
   // ── Bucket list (ortak hedefler) ─────────────────────────────────────────

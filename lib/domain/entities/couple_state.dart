@@ -3,6 +3,7 @@ import '../../core/utils/json_x.dart';
 import 'chat_message.dart';
 import 'partner_data.dart';
 import 'stat_key.dart';
+import 'weekly_schedule.dart';
 
 /// Üst bardaki "canlı durum" seçenekleri.
 enum LiveStatus {
@@ -407,6 +408,174 @@ final class BonusActionLog {
   );
 }
 
+/// Puanla açılan ödül kapsülü.
+///
+/// Çiftin **birleşik gelişim puanı** ([CoupleState.combinedPoints]) eşiği
+/// geçtiğinde kilit açılır; kapsül açıldığında içindeki ödül mesajı gösterilir.
+/// Kilit durumu saklanmaz, puandan türetilir → puan düşse bile kapsül "kapandı"
+/// gibi görünmez, [isOpened] ise kalıcıdır.
+final class RewardCapsule {
+  const RewardCapsule({
+    required this.id,
+    required this.title,
+    required this.emoji,
+    required this.description,
+    required this.requiredPoints,
+    this.rewardMessage = '',
+    this.isOpened = false,
+    this.openedAt,
+    this.isCustom = false,
+  });
+
+  final String id;
+  final String title;
+  final String emoji;
+
+  /// Kilitliyken gösterilen tanıtım cümlesi.
+  final String description;
+
+  /// Çiftin birleşik puan eşiği.
+  final int requiredPoints;
+
+  /// Kapsül açıldığında gösterilen sıcak mesaj.
+  final String rewardMessage;
+
+  final bool isOpened;
+  final DateTime? openedAt;
+
+  /// Yusuf & Ceyda'nın kendi eklediği kapsül mü?
+  final bool isCustom;
+
+  /// `'500 Puan Kapsülü'`
+  String get thresholdLabel => '$requiredPoints Puan Kapsülü';
+
+  /// Bu puanla kilit açıldı mı?
+  bool isUnlockedFor(int points) => points >= requiredPoints;
+
+  /// `0..1` ilerleme oranı (kilitliyken doluşan bar).
+  double progressFor(int points) {
+    if (requiredPoints <= 0) return 1;
+    return (points / requiredPoints).clamp(0.0, 1.0);
+  }
+
+  /// Kilide kalan puan (`0` → açıldı).
+  int remainingFor(int points) =>
+      (requiredPoints - points).clamp(0, requiredPoints);
+
+  RewardCapsule open(DateTime at) => copyWith(isOpened: true, openedAt: at);
+
+  RewardCapsule copyWith({
+    String? title,
+    String? emoji,
+    String? description,
+    int? requiredPoints,
+    String? rewardMessage,
+    bool? isOpened,
+    DateTime? openedAt,
+    bool? isCustom,
+  }) => RewardCapsule(
+    id: id,
+    title: title ?? this.title,
+    emoji: emoji ?? this.emoji,
+    description: description ?? this.description,
+    requiredPoints: requiredPoints ?? this.requiredPoints,
+    rewardMessage: rewardMessage ?? this.rewardMessage,
+    isOpened: isOpened ?? this.isOpened,
+    openedAt: openedAt ?? this.openedAt,
+    isCustom: isCustom ?? this.isCustom,
+  );
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'id': id,
+    'title': title,
+    'emoji': emoji,
+    'description': description,
+    'required_points': requiredPoints,
+    'reward_message': rewardMessage,
+    'is_opened': isOpened,
+    'opened_at': openedAt?.toIso8601String(),
+    'is_custom': isCustom,
+  };
+
+  factory RewardCapsule.fromJson(Map<String, dynamic> json) => RewardCapsule(
+    id: JsonX.asString(json['id']),
+    title: JsonX.asString(json['title']),
+    emoji: JsonX.asString(json['emoji'], fallback: '🎁'),
+    description: JsonX.asString(json['description']),
+    requiredPoints: JsonX.asInt(json['required_points'], fallback: 250),
+    rewardMessage: JsonX.asString(json['reward_message']),
+    isOpened: JsonX.asBool(json['is_opened']),
+    openedAt: JsonX.asDate(json['opened_at']),
+    isCustom: JsonX.asBool(json['is_custom']),
+  );
+
+  /// İlk açılışta hazır gelen 5 kapsül (puan eşikleri artan sırada).
+  static const List<RewardCapsule> starter = <RewardCapsule>[
+    RewardCapsule(
+      id: 'capsule-coffee',
+      title: 'Kahve & Tatlı Molası Kapsülü',
+      emoji: '☕',
+      description:
+          'Birlikte seçtiğimiz bir kafede telefonları kenara bırakıp '
+          'kahve & tatlı keyfi!',
+      requiredPoints: 250,
+      rewardMessage:
+          'Kapsülü açtın! Bu hafta bir kafe seçiyoruz: telefonlar çantada, '
+          'kahve ve tatlı bizim ☕💖',
+    ),
+    RewardCapsule(
+      id: 'capsule-massage',
+      title: '30 Dakika Masaj & Dinlenme Kapsülü',
+      emoji: '💆',
+      description:
+          'Yorucu bir okul ve spor haftasının sonunda 30 dakikalık özel '
+          'masaj hakkı!',
+      requiredPoints: 500,
+      rewardMessage:
+          '30 dakika masaj hakkı kazanıldı! Bu akşam sırt ve omuz '
+          'gerginliği sıfırlanıyor 💆✨',
+    ),
+    RewardCapsule(
+      id: 'capsule-movie',
+      title: 'Film & Atıştırmalık Gecesi Kapsülü',
+      emoji: '🎬',
+      description: 'Filmi ve menüyü kazananın seçtiği özel sinema gecesi!',
+      requiredPoints: 750,
+      rewardMessage:
+          'Film gecesi kapsülü açıldı! Menüyü seçen, filmi seçen — '
+          'itiraz yok 🎬🍿',
+    ),
+    RewardCapsule(
+      id: 'capsule-dinner',
+      title: 'Özel Akşam Yemeği Randevusu',
+      emoji: '🍕',
+      description:
+          'Haftanın yorgunluğunu sıfırlayan baş başa güzel bir akşam yemeği!',
+      requiredPoints: 1000,
+      rewardMessage:
+          'Özel akşam yemeği randevusu kapsülü açıldı! En güzel kıyafetler, '
+          'en güzel akşam 🍕🌙',
+    ),
+    RewardCapsule(
+      id: 'capsule-birthday',
+      title: 'Ceyda\'nın Büyük Doğum Günü Sürpriz Kapsülü',
+      emoji: '🎂',
+      description:
+          'İyi ki doğdun sevgilim! Bu kapsülü açtığında özel doğum günü '
+          'hediyen/sürprizin seni bekliyor ❤️',
+      requiredPoints: 1500,
+      rewardMessage:
+          '🎂 İyi ki doğdun Ceyda! Bu kapsülün içinde planlanmış bir sürpriz '
+          'gün var — hazır ol ❤️',
+    ),
+  ];
+
+  @override
+  String toString() =>
+      'RewardCapsule($emoji $title · $requiredPoints puan · '
+      '${isOpened ? 'açıldı' : 'kapalı'})';
+}
+
 /// İki kişilik sürümün **ortak** durumu.
 ///
 /// Partner başına kişisel ilerleme `GameState.partners` içinde tutulur; bu
@@ -426,6 +595,8 @@ final class CoupleState {
     this.loveNoteCursor = 0,
     this.messages = const <ChatMessage>[],
     this.stake = DuelStake.coffee,
+    this.scheduleBlocks = const <ScheduleBlock>[],
+    this.rewardCapsules = const <RewardCapsule>[],
   });
 
   /// Bucket list maddesi tamamlandığında iki tarafa da verilen Co-Op XP.
@@ -460,6 +631,12 @@ final class CoupleState {
   final List<BucketGoal> bucketGoals;
   final List<String> customLoveNotes;
   final int loveNoteCursor;
+
+  /// Yusuf & Ceyda'nın haftalık plan blokları (iki partnerin tek listesi).
+  final List<ScheduleBlock> scheduleBlocks;
+
+  /// Puanla açılan ödül kapsülleri (artan eşik sırasıyla eklenir).
+  final List<RewardCapsule> rewardCapsules;
 
   /// Sohbet kronolojik sırada (eskiden yeniye).
   final List<ChatMessage> messages;
@@ -545,6 +722,114 @@ final class CoupleState {
   int questsCompletedOn(String partnerId, DateTime day) =>
       questTally[tallyKey(partnerId, day)] ?? 0;
 
+  // ── Haftalık plan ────────────────────────────────────────────────────────
+
+  /// Partnerin gün içindeki blokları (saat sırasıyla).
+  List<ScheduleBlock> blocksForDay(String partnerId, int weekday) =>
+      SchedulePlanner.blocksForDay(scheduleBlocks, partnerId, weekday);
+
+  /// İki partnerin de blokları — yan yana timeline için.
+  List<ScheduleBlock> allBlocksForDay(int weekday) =>
+      SchedulePlanner.allBlocksForDay(scheduleBlocks, weekday);
+
+  /// Şu an devam eden blok (yoksa `null`).
+  ScheduleBlock? currentBlockFor(String partnerId, DateTime now) =>
+      SchedulePlanner.currentBlock(scheduleBlocks, partnerId, now);
+
+  /// Sıradaki blok (bugün kalmadıysa haftanın sonraki günü).
+  ScheduleBlock? nextBlockFor(String partnerId, DateTime now) =>
+      SchedulePlanner.nextBlock(scheduleBlocks, partnerId, now);
+
+  ScheduleBlock? blockById(String blockId) =>
+      SchedulePlanner.blockById(scheduleBlocks, blockId);
+
+  /// Ortak boşluklar — `['16:00 - 18:00', '20:30 - 23:00']`.
+  List<String> sharedFreeWindowsForDay(int weekday) => SchedulePlanner
+      .sharedFreeWindows(scheduleBlocks, weekday)
+      .map((FreeWindow window) => window.label)
+      .toList(growable: false);
+
+  /// Günün en uzun ortak boşluğu (dashboard pill'i).
+  FreeWindow? longestSharedFreeWindowForDay(int weekday) =>
+      SchedulePlanner.longestSharedFreeWindow(scheduleBlocks, weekday);
+
+  CoupleState addScheduleBlock(ScheduleBlock block) =>
+      copyWith(scheduleBlocks: <ScheduleBlock>[...scheduleBlocks, block]);
+
+  CoupleState addScheduleBlocks(Iterable<ScheduleBlock> blocks) => copyWith(
+    scheduleBlocks: <ScheduleBlock>[...scheduleBlocks, ...blocks],
+  );
+
+  CoupleState removeScheduleBlock(String blockId) => copyWith(
+    scheduleBlocks: scheduleBlocks
+        .where((ScheduleBlock block) => block.id != blockId)
+        .toList(growable: false),
+  );
+
+  /// Bloğun bugünkü "tamamlandı" işaretini açar/kapatır.
+  CoupleState completeScheduleBlock(String blockId, DateTime day) => copyWith(
+    scheduleBlocks: <ScheduleBlock>[
+      for (final ScheduleBlock block in scheduleBlocks)
+        if (block.id == blockId) block.toggleCompleted(day) else block,
+    ],
+  );
+
+  // ── Ödül kapsülleri ──────────────────────────────────────────────────────
+
+  /// Çiftin birleşik gelişim puanı (Yusuf + Ceyda rubrik/bonus puanları).
+  int get combinedPoints => CouplePartner.ids.fold<int>(
+    0,
+    (int sum, String partnerId) => sum + improvementPointsOf(partnerId),
+  );
+
+  /// Eşiğe göre artan sırada kapsüller (UI her zaman bu sırayla çizer).
+  List<RewardCapsule> get capsulesByThreshold =>
+      <RewardCapsule>[...rewardCapsules]..sort(
+        (RewardCapsule a, RewardCapsule b) =>
+            a.requiredPoints.compareTo(b.requiredPoints),
+      );
+
+  RewardCapsule? capsuleById(String capsuleId) {
+    for (final RewardCapsule capsule in rewardCapsules) {
+      if (capsule.id == capsuleId) return capsule;
+    }
+    return null;
+  }
+
+  /// Puanı yeten kapsül sayısı (kilit açılmış).
+  int get unlockedCapsuleCount => rewardCapsules
+      .where(
+        (RewardCapsule capsule) => capsule.isUnlockedFor(combinedPoints),
+      )
+      .length;
+
+  /// Puanı yeten ilk kapsül (dashboard'daki "sıradaki ödül" ipucu).
+  RewardCapsule? get nextUnlockedCapsule {
+    for (final RewardCapsule capsule in capsulesByThreshold) {
+      if (capsule.isUnlockedFor(combinedPoints) && !capsule.isOpened) {
+        return capsule;
+      }
+    }
+    return null;
+  }
+
+  /// Kapsülü açar; eşik dolmadıysa durum değişmez.
+  CoupleState openCapsule(String capsuleId, {DateTime? now}) {
+    final RewardCapsule? capsule = capsuleById(capsuleId);
+    if (capsule == null || capsule.isOpened) return this;
+    if (!capsule.isUnlockedFor(combinedPoints)) return this;
+    return copyWith(
+      rewardCapsules: <RewardCapsule>[
+        for (final RewardCapsule item in rewardCapsules)
+          if (item.id == capsuleId) item.open(now ?? DateTime.now()) else item,
+      ],
+    );
+  }
+
+  CoupleState addCapsule(RewardCapsule capsule) => copyWith(
+    rewardCapsules: <RewardCapsule>[...rewardCapsules, capsule],
+  );
+
   bool hasSynergy(StatKey pillar, DateTime day) =>
       synergyKeys.contains(synergyKey(pillar, day));
 
@@ -589,6 +874,8 @@ final class CoupleState {
     int? loveNoteCursor,
     List<ChatMessage>? messages,
     DuelStake? stake,
+    List<ScheduleBlock>? scheduleBlocks,
+    List<RewardCapsule>? rewardCapsules,
   }) => CoupleState(
     liveStatus: liveStatus ?? this.liveStatus,
     bonusActions: bonusActions ?? this.bonusActions,
@@ -600,6 +887,8 @@ final class CoupleState {
     loveNoteCursor: loveNoteCursor ?? this.loveNoteCursor,
     messages: messages ?? this.messages,
     stake: stake ?? this.stake,
+    scheduleBlocks: scheduleBlocks ?? this.scheduleBlocks,
+    rewardCapsules: rewardCapsules ?? this.rewardCapsules,
   );
 
   // ── Mutasyonlar (hepsi yeni örnek döner) ─────────────────────────────────
@@ -702,6 +991,12 @@ final class CoupleState {
       for (final ChatMessage message in messages) message.toJson(),
     ],
     'stake': stake.code,
+    'schedule_blocks': <Map<String, dynamic>>[
+      for (final ScheduleBlock block in scheduleBlocks) block.toJson(),
+    ],
+    'reward_capsules': <Map<String, dynamic>>[
+      for (final RewardCapsule capsule in rewardCapsules) capsule.toJson(),
+    ],
   };
 
   factory CoupleState.fromJson(Map<String, dynamic> json) {
@@ -749,6 +1044,26 @@ final class CoupleState {
       }
     }
 
+    final Object? rawSchedule = json['schedule_blocks'];
+    final List<ScheduleBlock> schedule = <ScheduleBlock>[];
+    if (rawSchedule is List) {
+      for (final Object? item in rawSchedule) {
+        if (item is Map) {
+          schedule.add(ScheduleBlock.fromJson(JsonX.asMap(item)));
+        }
+      }
+    }
+
+    final Object? rawCapsules = json['reward_capsules'];
+    final List<RewardCapsule> capsules = <RewardCapsule>[];
+    if (rawCapsules is List) {
+      for (final Object? item in rawCapsules) {
+        if (item is Map) {
+          capsules.add(RewardCapsule.fromJson(JsonX.asMap(item)));
+        }
+      }
+    }
+
     return CoupleState(
       liveStatus: statuses,
       bonusActions: actions,
@@ -760,6 +1075,10 @@ final class CoupleState {
       loveNoteCursor: JsonX.asInt(json['love_note_cursor']),
       messages: messages,
       stake: DuelStake.fromCode(JsonX.asString(json['stake'])),
+      scheduleBlocks: rawSchedule is List ? schedule : ScheduleSeed.week(),
+      rewardCapsules: rawCapsules is List
+          ? capsules
+          : RewardCapsule.starter,
     );
   }
 
@@ -835,7 +1154,18 @@ final class CoupleState {
           text: 'Seninle her gün bir öncekinden daha güzel 💖',
           kind: ChatMessageKind.loveNote,
         ),
+        ChatMessage(
+          id: 'seed-5',
+          senderId: CouplePartner.ceydaId,
+          createdAt: at.subtract(const Duration(hours: 1, minutes: 20)),
+          photoDataOrUrl: 'preset:gym',
+          photoCaption: '🏋️ Spor kanıtı · 16:00 bitti, duş ve kahve ☕',
+          questBadgeTitle: 'Sporda · Antrenman & Mobilite',
+          kind: ChatMessageKind.proof,
+        ),
       ],
+      scheduleBlocks: ScheduleSeed.week(),
+      rewardCapsules: RewardCapsule.starter,
     );
   }
 

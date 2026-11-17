@@ -6,7 +6,10 @@ enum ChatMessageKind {
   photo(code: 'photo'),
   questShare(code: 'quest_share'),
   nudge(code: 'nudge'),
-  loveNote(code: 'love_note');
+  loveNote(code: 'love_note'),
+
+  /// Haftalık plandan üretilen kanıt kartı (fotoğraf gibi görünür).
+  proof(code: 'proof');
 
   const ChatMessageKind({required this.code});
 

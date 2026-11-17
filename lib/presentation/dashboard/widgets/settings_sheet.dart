@@ -116,8 +116,9 @@ class SettingsSheet extends ConsumerWidget {
                         '${setup.trackLabel} · ${profile.titleLabel}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption
-                            .copyWith(color: AppColors.textTertiary),
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textTertiary,
+                        ),
                       ),
                     ],
                   ),
@@ -171,8 +172,9 @@ class SettingsSheet extends ConsumerWidget {
                       '${setup.goals.length} hedef · '
                       'günde ${setup.dailyQuestTarget} görev · '
                       '${setup.tempo.minutes} dk tempo',
-                      style: AppTypography.bodySmall
-                          .copyWith(color: AppColors.textSecondary),
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ),
                 ],

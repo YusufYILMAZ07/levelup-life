@@ -102,8 +102,9 @@ class _AddQuestSheetState extends ConsumerState<AddQuestSheet> {
                       ),
                       Text(
                         'Kendi hedefini yaz; statını ve süresini sen seç.',
-                        style: AppTypography.bodySmall
-                            .copyWith(color: AppColors.textTertiary),
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.textTertiary,
+                        ),
                       ),
                     ],
                   ),
@@ -159,16 +160,14 @@ class _AddQuestSheetState extends ConsumerState<AddQuestSheet> {
                 max: 120,
                 divisions: 22,
                 label: '${_minutes.round()} dk',
-                onChanged: (double value) =>
-                    setState(() => _minutes = value),
+                onChanged: (double value) => setState(() => _minutes = value),
               ),
             ),
             const SizedBox(height: AppSpacing.md),
             const SectionHeader(title: 'Zorluk'),
             Row(
               children: <Widget>[
-                for (final QuestDifficulty difficulty
-                    in QuestDifficulty.values)
+                for (final QuestDifficulty difficulty in QuestDifficulty.values)
                   Expanded(
                     child: Padding(
                       padding: EdgeInsets.only(
@@ -180,8 +179,7 @@ class _AddQuestSheetState extends ConsumerState<AddQuestSheet> {
                         difficulty: difficulty,
                         selected: _difficulty == difficulty,
                         color: _stat.color,
-                        onTap: () =>
-                            setState(() => _difficulty = difficulty),
+                        onTap: () => setState(() => _difficulty = difficulty),
                       ),
                     ),
                   ),
@@ -209,11 +207,7 @@ class _AddQuestSheetState extends ConsumerState<AddQuestSheet> {
                       ),
                     ),
                   ),
-                  InfoPill(
-                    label: '+$_xp XP',
-                    color: _stat.color,
-                    dense: true,
-                  ),
+                  InfoPill(label: '+$_xp XP', color: _stat.color, dense: true),
                 ],
               ),
             ),

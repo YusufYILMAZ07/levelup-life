@@ -100,14 +100,132 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return caption;
   }
 
-  Future<void> _pickPhoto() async {
-    final PhotoPreset? preset = await showModalBottomSheet<PhotoPreset>(
+  Future<_PhotoSource?> _askImageSource() async {
+    final TextEditingController source = TextEditingController();
+    final TextEditingController caption = TextEditingController();
+    String? error;
+
+    final _PhotoSource? result = await showDialog<_PhotoSource>(
       context: context,
+      builder: (BuildContext dialogContext) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter setState) {
+          void submit() {
+            final String value = source.text.trim();
+            if (!CouplePhoto.isDataUrl(value) &&
+                !CouplePhoto.isHttpUrl(value)) {
+              setState(() => error = 'https://… ya da data:image/… bekleniyor');
+              return;
+            }
+            Navigator.of(
+              dialogContext,
+            ).pop(_PhotoSource(url: value, caption: caption.text.trim()));
+          }
+
+          return AlertDialog(
+            title: const Text('🖼️ Görsel Ekle'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                TextField(
+                  key: const Key('photo-source-input'),
+                  controller: source,
+                  autofocus: true,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    hintText: 'https://… veya data:image/…;base64,…',
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Panoya kopyaladığın görsel bağlantısını ya da base64 '
+                  'veri URL’sini yapıştır.',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  key: const Key('photo-source-caption'),
+                  controller: caption,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    hintText: 'Bir not ekle (opsiyonel)',
+                  ),
+                ),
+                if (error != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    error!,
+                    key: const Key('photo-source-error'),
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.danger,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Vazgeç'),
+              ),
+              TextButton(
+                key: const Key('photo-source-confirm'),
+                onPressed: submit,
+                child: const Text('Paylaş'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    source.dispose();
+    caption.dispose();
+    return result;
+  }
+
+  Future<void> _pickPhoto() async {
+    final _PhotoChoice? choice = await showModalBottomSheet<_PhotoChoice>(
+      context: context,
+      isScrollControlled: true,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(borderRadius: AppRadii.sheet),
       builder: (BuildContext sheetContext) => const _PhotoPresetSheet(),
     );
-    if (preset == null || !mounted) return;
+    if (choice == null || !mounted) return;
+
+    if (choice.kind == _PhotoChoiceKind.scheduleProof) {
+      final ChatMessage? proof = ref
+          .read(gameProvider.notifier)
+          .sendScheduleProof();
+      if (proof == null) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('Aktif ya da sıradaki plan bulunamadı 📅'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
+      return;
+    }
+
+    if (choice.kind == _PhotoChoiceKind.image) {
+      final _PhotoSource? picked = await _askImageSource();
+      if (picked == null || !mounted) return;
+      ref
+          .read(gameProvider.notifier)
+          .sendPhoto(photoDataOrUrl: picked.url, caption: picked.caption);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
+      return;
+    }
+
+    final PhotoPreset? preset = choice.preset;
+    if (preset == null) return;
     final String? caption = await _askCaption(preset);
     if (caption == null || !mounted) return;
     ref
@@ -695,14 +813,20 @@ class _QuickChip extends StatelessWidget {
   }
 }
 
-class _PhotoPresetSheet extends StatelessWidget {
+class _PhotoPresetSheet extends ConsumerWidget {
   const _PhotoPresetSheet();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GameState state = ref.watch(gameProvider);
+    final DateTime now = DateTime.now();
+    final ScheduleBlock? block =
+        state.couple.currentBlockFor(state.activePartnerId, now) ??
+        state.couple.nextBlockFor(state.activePartnerId, now);
+
     return SafeArea(
       top: false,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.xxl,
           AppSpacing.lg,
@@ -722,12 +846,46 @@ class _PhotoPresetSheet extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.xxs),
             Text(
-              'Bir anı kartı seç · fotoğrafın notuyla birlikte albüme düşer.',
+              'Planından kanıt gönder, görsel bağlantısı ekle ya da hazır '
+              'anı kartlarından birini seç.',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.textTertiary,
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
+            _GhostAction(
+              key: const Key('send-schedule-proof'),
+              emoji: '📅',
+              title: 'Şu Anki Planımdan Kanıt Kartı Gönder',
+              subtitle: block == null
+                  ? 'Önce haftalık plana bir blok ekle'
+                  : '${block.weekdayShortLabel} · ${block.timeRangeLabel} · '
+                        '${block.category.emoji} ${block.category.shortLabel}',
+              accent: AppColors.primary,
+              enabled: block != null,
+              onTap: () =>
+                  Navigator.of(context).pop(const _PhotoChoice.proof()),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _GhostAction(
+              key: const Key('pick-photo-source'),
+              emoji: '🖼️',
+              title: 'Görsel Bağlantısı / Base64 Ekle',
+              subtitle: 'https://… ya da data:image/… yapıştır',
+              accent: AppColors.info,
+              onTap: () =>
+                  Navigator.of(context).pop(const _PhotoChoice.image()),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'Hazır anı kartları',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs + 1),
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
@@ -742,7 +900,8 @@ class _PhotoPresetSheet extends StatelessWidget {
                 final PhotoPreset preset = PhotoPreset.all[index];
                 return GestureDetector(
                   key: Key('preset-${preset.id}'),
-                  onTap: () => Navigator.of(context).pop(preset),
+                  onTap: () =>
+                      Navigator.of(context).pop(_PhotoChoice.preset(preset)),
                   child: Container(
                     decoration: BoxDecoration(
                       gradient: preset.gradient,
@@ -773,6 +932,104 @@ class _PhotoPresetSheet extends StatelessWidget {
               },
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _PhotoChoiceKind { preset, image, scheduleProof }
+
+/// Anı ekleme sayfasının dönüş değeri.
+final class _PhotoChoice {
+  const _PhotoChoice.preset(this.preset) : kind = _PhotoChoiceKind.preset;
+  const _PhotoChoice.image() : kind = _PhotoChoiceKind.image, preset = null;
+  const _PhotoChoice.proof()
+    : kind = _PhotoChoiceKind.scheduleProof,
+      preset = null;
+
+  final _PhotoChoiceKind kind;
+  final PhotoPreset? preset;
+}
+
+/// Panodan/yapıştırmayla eklenen görselin adresi ve notu.
+final class _PhotoSource {
+  const _PhotoSource({required this.url, this.caption = ''});
+
+  final String url;
+  final String caption;
+}
+
+class _GhostAction extends StatelessWidget {
+  const _GhostAction({
+    required this.emoji,
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.onTap,
+    this.enabled = true,
+    super.key,
+  });
+
+  final String emoji;
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: enabled ? 1 : 0.45,
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: AppRadii.mdAll,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: AppRadii.mdAll,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm + 2,
+            ),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.06),
+              borderRadius: AppRadii.mdAll,
+              border: Border.all(color: accent.withValues(alpha: 0.32)),
+            ),
+            child: Row(
+              children: <Widget>[
+                Text(emoji, style: const TextStyle(fontSize: 20)),
+                const SizedBox(width: AppSpacing.sm + 2),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        title,
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textTertiary,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, size: 18, color: accent),
+              ],
+            ),
+          ),
         ),
       ),
     );

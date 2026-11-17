@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/shell_controller.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/theme.dart';
 import '../chat/chat_screen.dart';
@@ -11,54 +13,16 @@ import '../progress/progress_screen.dart';
 ///
 /// `IndexedStack` kullanılır: her sekmenin kaydırma konumu, İlerleme'deki
 /// 7/30 gün seçimi ve sohbet taslağı sekmeler arasında korunur.
-class AppShell extends StatefulWidget {
+class AppShell extends ConsumerWidget {
   const AppShell({super.key});
 
   @override
-  State<AppShell> createState() => _AppShellState();
-}
-
-class _AppShellState extends State<AppShell> {
-  static const List<_ShellTab> _tabs = <_ShellTab>[
-    _ShellTab(
-      label: 'Bugün',
-      icon: Icons.today_outlined,
-      activeIcon: Icons.today_rounded,
-      navKey: Key('nav-today'),
-    ),
-    _ShellTab(
-      label: 'Gelişim',
-      icon: Icons.auto_awesome_outlined,
-      activeIcon: Icons.auto_awesome_rounded,
-      navKey: Key('nav-development'),
-    ),
-    _ShellTab(
-      label: 'Sohbet',
-      icon: Icons.chat_bubble_outline_rounded,
-      activeIcon: Icons.chat_bubble_rounded,
-      navKey: Key('nav-chat'),
-    ),
-    _ShellTab(
-      label: 'İlerleme',
-      icon: Icons.insights_outlined,
-      activeIcon: Icons.insights_rounded,
-      navKey: Key('nav-progress'),
-    ),
-  ];
-
-  int _index = 0;
-
-  void _select(int index) {
-    if (index == _index) return;
-    setState(() => _index = index);
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final int index = ref.watch(shellTabProvider);
     return Scaffold(
       backgroundColor: AppColors.background,
       body: IndexedStack(
-        index: _index,
+        index: index,
         children: const <Widget>[
           DashboardScreen(key: ValueKey<String>('dashboard')),
           DevelopmentScreen(key: ValueKey<String>('development')),
@@ -68,12 +32,40 @@ class _AppShellState extends State<AppShell> {
       ),
       bottomNavigationBar: _ShellNavBar(
         tabs: _tabs,
-        index: _index,
-        onSelect: _select,
+        index: index,
+        onSelect: ref.read(shellTabProvider.notifier).goTo,
       ),
     );
   }
 }
+
+/// Alt gezinme sekmeleri — ikon çifti seçili/seçili değil durumu için.
+const List<_ShellTab> _tabs = <_ShellTab>[
+  _ShellTab(
+    label: 'Bugün',
+    icon: Icons.today_outlined,
+    activeIcon: Icons.today_rounded,
+    navKey: Key('nav-today'),
+  ),
+  _ShellTab(
+    label: 'Gelişim',
+    icon: Icons.auto_awesome_outlined,
+    activeIcon: Icons.auto_awesome_rounded,
+    navKey: Key('nav-development'),
+  ),
+  _ShellTab(
+    label: 'Sohbet',
+    icon: Icons.chat_bubble_outline_rounded,
+    activeIcon: Icons.chat_bubble_rounded,
+    navKey: Key('nav-chat'),
+  ),
+  _ShellTab(
+    label: 'İlerleme',
+    icon: Icons.insights_outlined,
+    activeIcon: Icons.insights_rounded,
+    navKey: Key('nav-progress'),
+  ),
+];
 
 /// Sekme tanımı — ikon çifti seçili/seçili değil durumu için.
 final class _ShellTab {

@@ -10,6 +10,8 @@ import '../../domain/services/services.dart';
 import '../widgets/couple_top_bar.dart';
 import '../widgets/section_header.dart';
 import '../widgets/soft_card.dart';
+import 'widgets/reward_capsules_tab.dart';
+import 'widgets/weekly_plan_tab.dart';
 
 /// Gelişim sekmesi: günlük 1-2-3 rubriği, hızlı bonus eylemler ve ortak
 /// bucket list.
@@ -17,13 +19,34 @@ import '../widgets/soft_card.dart';
 /// Rubrik puanı **aktif partner** için yazılır; üst bardan partner değiştirince
 /// aynı ekrandan diğerinin puanlarını girebilirsin. İki taraf da aynı alanda
 /// 2+ puan alırsa sinerji bonusu (+25 XP her ikinize) tetiklenir.
-class DevelopmentScreen extends ConsumerWidget {
+class DevelopmentScreen extends ConsumerStatefulWidget {
   const DevelopmentScreen({this.now, super.key});
 
   /// Testlerde zamanı sabitlemek için.
   final DateTime? now;
 
-  void _rate(BuildContext context, WidgetRef ref, StatKey pillar, int score) {
+  @override
+  ConsumerState<DevelopmentScreen> createState() => _DevelopmentScreenState();
+}
+
+/// Gelişim ekranının üç alt sekmesi.
+enum _DevTab {
+  week('📅', 'Haftalık Plan'),
+  daily('⭐', 'Günlük Puan'),
+  rewards('🎁', 'Kapsüller');
+
+  const _DevTab(this.emoji, this.label);
+
+  final String emoji;
+  final String label;
+}
+
+class _DevelopmentScreenState extends ConsumerState<DevelopmentScreen> {
+  _DevTab _tab = _DevTab.week;
+
+  DateTime get _at => widget.now ?? DateTime.now();
+
+  void _rate(BuildContext context, StatKey pillar, int score) {
     final RubricOutcome outcome = ref
         .read(gameProvider.notifier)
         .ratePillar(pillar: pillar, score: score);
@@ -41,12 +64,12 @@ class DevelopmentScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final GameState state = ref.watch(gameProvider);
     final UserProfile? profile = state.profile;
     if (profile == null) return const SizedBox.shrink();
 
-    final DateTime at = now ?? DateTime.now();
+    final DateTime at = _at;
     final CoupleState couple = state.couple;
     final String activeId = state.activePartnerId;
     final String name = CouplePalette.nameOf(activeId);
@@ -92,83 +115,95 @@ class DevelopmentScreen extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.lg),
                 CoupleTopBar(now: at),
                 const SizedBox(height: AppSpacing.lg),
-                _TodayScoreCard(
-                  name: name,
-                  partnerId: activeId,
-                  total: couple.rubricTotalOn(activeId, at),
-                  rubricXp: couple.rubricXpOn(activeId, at),
-                  bonusPoints: couple.bonusPointsOn(activeId, at),
-                  improvement: couple.improvementPointsOf(activeId),
+                _DevTabBar(
+                  value: _tab,
+                  onChanged: (_DevTab tab) => setState(() => _tab = tab),
                 ),
-                const SizedBox(height: AppSpacing.md),
-                _SynergyBanner(couple: couple, now: at),
-                const SizedBox(height: AppSpacing.xxl),
-                SectionHeader(
-                  title: 'Günlük Gelişim Rubriği',
-                  subtitle: '$name için · 1 → 10 XP · 2 → 25 XP · 3 → 45 XP',
-                ),
-                for (final PillarDefinition pillar in DevelopmentRubric.pillars)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.sm + 2),
-                    child: _PillarCard(
-                      pillar: pillar,
-                      score: couple.rubricScore(activeId, pillar.stat, at),
-                      onScore: (int score) =>
-                          _rate(context, ref, pillar.stat, score),
-                    ),
+                const SizedBox(height: AppSpacing.lg),
+                if (_tab == _DevTab.week) WeeklyPlanTab(now: at),
+                if (_tab == _DevTab.daily) ...<Widget>[
+                  _TodayScoreCard(
+                    name: name,
+                    partnerId: activeId,
+                    total: couple.rubricTotalOn(activeId, at),
+                    rubricXp: couple.rubricXpOn(activeId, at),
+                    bonusPoints: couple.bonusPointsOn(activeId, at),
+                    improvement: couple.improvementPointsOf(activeId),
                   ),
-                const SizedBox(height: AppSpacing.xl),
-                const SectionHeader(
-                  title: 'Hızlı Bonus Eylemler',
-                  subtitle: 'Tek dokunuş · anında XP',
-                ),
-                _QuickActionGrid(
-                  onAction: (QuickAction action) {
-                    final XpAward? award = ref
-                        .read(gameProvider.notifier)
-                        .quickAction(action);
-                    if (award == null) return;
-                    ScaffoldMessenger.of(context)
-                      ..hideCurrentSnackBar()
-                      ..showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            '${action.emoji} +${award.xpGained} XP · '
-                            '${action.stat.label} güçlendi',
+                  const SizedBox(height: AppSpacing.md),
+                  _SynergyBanner(couple: couple, now: at),
+                  const SizedBox(height: AppSpacing.xxl),
+                  SectionHeader(
+                    title: 'Günlük Gelişim Rubriği',
+                    subtitle: '$name için · 1 → 10 XP · 2 → 25 XP · 3 → 45 XP',
+                  ),
+                  for (final PillarDefinition pillar
+                      in DevelopmentRubric.pillars)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.sm + 2),
+                      child: _PillarCard(
+                        pillar: pillar,
+                        score: couple.rubricScore(activeId, pillar.stat, at),
+                        onScore: (int score) =>
+                            _rate(context, pillar.stat, score),
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.xl),
+                  const SectionHeader(
+                    title: 'Hızlı Bonus Eylemler',
+                    subtitle: 'Tek dokunuş · anında XP',
+                  ),
+                  _QuickActionGrid(
+                    onAction: (QuickAction action) {
+                      final XpAward? award = ref
+                          .read(gameProvider.notifier)
+                          .quickAction(action);
+                      if (award == null) return;
+                      ScaffoldMessenger.of(context)
+                        ..hideCurrentSnackBar()
+                        ..showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              '${action.emoji} +${award.xpGained} XP · '
+                              '${action.stat.label} güçlendi',
+                            ),
+                            duration: const Duration(seconds: 2),
                           ),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                  },
-                ),
-                const SizedBox(height: AppSpacing.xl),
-                SectionHeader(
-                  title: 'Ortak Bucket List',
-                  subtitle:
-                      '${couple.bucketGoals.where((BucketGoal goal) => goal.isDone).length}'
-                      '/${couple.bucketGoals.length} tamamlandı · '
-                      '+${CoupleState.bucketBonusXp} XP her ikinize',
-                ),
-                _BucketListCard(
-                  goals: couple.bucketGoals,
-                  onToggle: (String id) {
-                    final bool completed = ref
-                        .read(gameProvider.notifier)
-                        .toggleBucketGoal(id);
-                    if (!completed) return;
-                    ScaffoldMessenger.of(context)
-                      ..hideCurrentSnackBar()
-                      ..showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Co-Op tamamlandı! İkiniz de '
-                            '+${CoupleState.bucketBonusXp} XP kazandınız 💖',
+                        );
+                    },
+                  ),
+                ],
+                if (_tab == _DevTab.rewards) ...<Widget>[
+                  const RewardCapsulesTab(),
+                  const SizedBox(height: AppSpacing.xl),
+                  SectionHeader(
+                    title: 'Ortak Bucket List',
+                    subtitle:
+                        '${couple.bucketGoals.where((BucketGoal goal) => goal.isDone).length}'
+                        '/${couple.bucketGoals.length} tamamlandı · '
+                        '+${CoupleState.bucketBonusXp} XP her ikinize',
+                  ),
+                  _BucketListCard(
+                    goals: couple.bucketGoals,
+                    onToggle: (String id) {
+                      final bool completed = ref
+                          .read(gameProvider.notifier)
+                          .toggleBucketGoal(id);
+                      if (!completed) return;
+                      ScaffoldMessenger.of(context)
+                        ..hideCurrentSnackBar()
+                        ..showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Co-Op tamamlandı! İkiniz de '
+                              '+${CoupleState.bucketBonusXp} XP kazandınız 💖',
+                            ),
+                            duration: Duration(seconds: 2),
                           ),
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
-                  },
-                ),
+                        );
+                    },
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 const _LoveNoteCard(),
                 const SizedBox(height: AppSpacing.lg),
@@ -186,6 +221,65 @@ class DevelopmentScreen extends ConsumerWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _DevTabBar extends StatelessWidget {
+  const _DevTabBar({required this.value, required this.onChanged});
+
+  final _DevTab value;
+  final ValueChanged<_DevTab> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSunken,
+        borderRadius: AppRadii.pillAll,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: <Widget>[
+          for (final _DevTab tab in _DevTab.values)
+            Expanded(
+              child: Material(
+                color: value == tab ? AppColors.surface : Colors.transparent,
+                borderRadius: AppRadii.pillAll,
+                child: InkWell(
+                  key: Key('dev-tab-${tab.name}'),
+                  onTap: () => onChanged(tab),
+                  borderRadius: AppRadii.pillAll,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        Text(tab.emoji, style: const TextStyle(fontSize: 12)),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            tab.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.caption.copyWith(
+                              color: value == tab
+                                  ? AppColors.primary
+                                  : AppColors.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

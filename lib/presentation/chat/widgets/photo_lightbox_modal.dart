@@ -137,13 +137,41 @@ class _PhotoLightbox extends ConsumerWidget {
   }
 }
 
-class _MemoryAlbumSheet extends ConsumerWidget {
+/// Anı albümü filtreleri.
+enum _AlbumFilter {
+  all('Tümü', '📸'),
+  proofs('Plan & Görev Kanıtları', '📅'),
+  memories('Çift Anılarımız', '💑');
+
+  const _AlbumFilter(this.label, this.emoji);
+
+  final String label;
+  final String emoji;
+
+  bool matches(ChatMessage message) => switch (this) {
+    _AlbumFilter.all => true,
+    _AlbumFilter.proofs => message.kind == ChatMessageKind.proof,
+    _AlbumFilter.memories => message.kind != ChatMessageKind.proof,
+  };
+}
+
+class _MemoryAlbumSheet extends ConsumerStatefulWidget {
   const _MemoryAlbumSheet();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_MemoryAlbumSheet> createState() => _MemoryAlbumSheetState();
+}
+
+class _MemoryAlbumSheetState extends ConsumerState<_MemoryAlbumSheet> {
+  _AlbumFilter _filter = _AlbumFilter.all;
+
+  @override
+  Widget build(BuildContext context) {
     final CoupleState couple = ref.watch(coupleStateProvider);
-    final List<ChatMessage> photos = couple.photoMessages;
+    final List<ChatMessage> all = couple.photoMessages;
+    final List<ChatMessage> photos = all
+        .where(_filter.matches)
+        .toList(growable: false);
 
     return SafeArea(
       top: false,
@@ -167,15 +195,38 @@ class _MemoryAlbumSheet extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.xxs),
             Text(
-              '${photos.length} fotoğraf · ${couple.likedPhotoCount} favori',
+              '${photos.length}/${all.length} kare · '
+              '${couple.likedPhotoCount} favori',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.textTertiary,
               ),
             ),
+            const SizedBox(height: AppSpacing.md),
+            Wrap(
+              spacing: AppSpacing.xs + 1,
+              runSpacing: AppSpacing.xs + 1,
+              children: <Widget>[
+                for (final _AlbumFilter filter in _AlbumFilter.values)
+                  _AlbumFilterChip(
+                    key: Key('album-filter-${filter.name}'),
+                    filter: filter,
+                    selected: _filter == filter,
+                    count: all.where(filter.matches).length,
+                    onTap: () => setState(() => _filter = filter),
+                  ),
+              ],
+            ),
             const SizedBox(height: AppSpacing.lg),
             if (photos.isEmpty)
               Text(
-                'Henüz fotoğraf yok. Sohbetten "📸 Anı" ile ilk anıyı ekle.',
+                _filter == _AlbumFilter.proofs
+                    ? 'Henüz kanıt yok. Haftalık plandan ya da sohbetten '
+                          '"📅 Kanıt" gönder.'
+                    : _filter == _AlbumFilter.memories
+                    ? 'Henüz çift anısı yok. Sohbetten "📸 Anı" ile ilk '
+                          'kareyi ekle.'
+                    : 'Henüz fotoğraf yok. Sohbetten "📸 Anı" ile ilk anıyı '
+                          'ekle.',
                 style: AppTypography.bodySmall.copyWith(
                   color: AppColors.textSecondary,
                 ),
@@ -213,6 +264,31 @@ class _MemoryAlbumSheet extends ConsumerWidget {
                                 size: 16,
                               ),
                             ),
+                          if (message.kind == ChatMessageKind.proof)
+                            Positioned(
+                              left: AppSpacing.xs,
+                              bottom: AppSpacing.xs,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.shadow.withValues(
+                                    alpha: 0.35,
+                                  ),
+                                  borderRadius: AppRadii.pillAll,
+                                ),
+                                child: Text(
+                                  '📅 Kanıt',
+                                  style: AppTypography.caption.copyWith(
+                                    color: AppColors.textOnAccent,
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     );
@@ -220,6 +296,73 @@ class _MemoryAlbumSheet extends ConsumerWidget {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AlbumFilterChip extends StatelessWidget {
+  const _AlbumFilterChip({
+    required this.filter,
+    required this.selected,
+    required this.count,
+    required this.onTap,
+    super.key,
+  });
+
+  final _AlbumFilter filter;
+  final bool selected;
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AppColors.primary : AppColors.surface,
+      borderRadius: AppRadii.pillAll,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadii.pillAll,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm + 2,
+            vertical: AppSpacing.xs + 2,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: AppRadii.pillAll,
+            border: Border.all(
+              color: selected ? AppColors.primary : AppColors.border,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(filter.emoji, style: const TextStyle(fontSize: 11)),
+              const SizedBox(width: 4),
+              Text(
+                filter.label,
+                style: AppTypography.caption.copyWith(
+                  color: selected
+                      ? AppColors.textOnAccent
+                      : AppColors.textSecondary,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '$count',
+                style: AppTypography.caption.copyWith(
+                  color: selected
+                      ? AppColors.textOnAccent.withValues(alpha: 0.8)
+                      : AppColors.textTertiary,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

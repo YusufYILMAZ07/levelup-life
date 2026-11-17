@@ -24,3 +24,4 @@ export 'user_profile.dart';
 export 'user_setup.dart';
 export 'verification.dart';
 export 'weekly_report.dart';
+export 'weekly_schedule.dart';

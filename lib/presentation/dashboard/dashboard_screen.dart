@@ -7,7 +7,6 @@ import '../../core/constants/app_constants.dart';
 import '../../core/theme/theme.dart';
 import '../../core/utils/format_x.dart';
 import '../../domain/entities/entities.dart';
-import '../../domain/services/services.dart';
 import '../widgets/couple_top_bar.dart';
 import '../widgets/quest_card.dart';
 import '../widgets/section_header.dart';
@@ -16,6 +15,7 @@ import '../widgets/stat_radar_chart.dart';
 import 'widgets/add_quest_sheet.dart';
 import 'widgets/birthday_banner.dart';
 import 'widgets/level_hero_card.dart';
+import 'widgets/live_couple_now_card.dart';
 import 'widgets/settings_sheet.dart';
 import 'widgets/stat_progress_tile.dart';
 
@@ -28,8 +28,9 @@ class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
   void _completeQuest(BuildContext context, WidgetRef ref, Quest quest) {
-    final XpAward? award =
-        ref.read(gameProvider.notifier).completeQuest(quest.id);
+    final XpAward? award = ref
+        .read(gameProvider.notifier)
+        .completeQuest(quest.id);
     if (award == null) return;
     final String message = award.leveledUp
         ? 'Seviye atladın! Lv ${award.after.level} · +${award.xpGained} XP'
@@ -37,10 +38,7 @@ class DashboardScreen extends ConsumerWidget {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 2),
-        ),
+        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
       );
   }
 
@@ -97,8 +95,9 @@ class DashboardScreen extends ConsumerWidget {
                                 '${setup.role.label} · ${setup.trackLabel}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: AppTypography.bodySmall
-                                    .copyWith(color: AppColors.textTertiary),
+                                style: AppTypography.bodySmall.copyWith(
+                                  color: AppColors.textTertiary,
+                                ),
                               ),
                             ],
                           ),
@@ -116,6 +115,8 @@ class DashboardScreen extends ConsumerWidget {
                       const SizedBox(height: AppSpacing.lg),
                       const CoupleTopBar(),
                       const SizedBox(height: AppSpacing.md),
+                      const LiveCoupleNowCard(),
+                      const SizedBox(height: AppSpacing.sm),
                       const BirthdayBanner(),
                     ],
                     const SizedBox(height: AppSpacing.xl),
@@ -155,71 +156,13 @@ class DashboardScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
-                    if (state.isCoupleEdition) ...<Widget>[
-                      const SizedBox(height: AppSpacing.md),
-                      const _PartnerSnapshotCard(),
-                    ],
+                    const SizedBox(height: AppSpacing.lg),
+                    _StatsDisclosure(profile: profile, radar: radar),
                     const SizedBox(height: AppSpacing.xl),
-                    SoftCard(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.lg,
-                        AppSpacing.lg,
-                        AppSpacing.sm,
-                        AppSpacing.sm,
-                      ),
-                      child: Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Text(
-                                  'Karakter Radarı',
-                                  style: AppTypography.title.copyWith(
-                                    color: AppColors.textPrimary,
-                                    fontSize: 17,
-                                  ),
-                                ),
-                                const SizedBox(height: AppSpacing.xxs),
-                                Text(
-                                  'En güçlü stat: '
-                                  '${profile.rpgStats.strongest.stat.label}',
-                                  style: AppTypography.bodySmall.copyWith(
-                                    color: AppColors.textTertiary,
-                                  ),
-                                ),
-                                const SizedBox(height: AppSpacing.md),
-                                InfoPill(
-                                  label: 'Ortalama '
-                                      '${profile.rpgStats.averageRadarValue.round()} / 100',
-                                  color: AppColors.primary,
-                                  dense: true,
-                                ),
-                              ],
-                            ),
-                          ),
-                          StatRadarChart(values: radar, size: 156),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.xxl),
-                    SectionHeader(
-                      title: 'Statların',
-                      subtitle: 'Her görev bir statı besler; radar XP ile büyür.',
-                      trailing: InfoPill(
-                        label: '${FormatX.number(profile.totalXp)} XP',
-                        color: AppColors.primary,
-                        dense: true,
-                      ),
-                    ),
-                    for (final StatKey stat in StatKey.values) ...<Widget>[
-                      StatProgressTile(progress: profile.rpgStats[stat]),
-                      const SizedBox(height: AppSpacing.sm + 2),
-                    ],
-                    const SizedBox(height: AppSpacing.md),
                     SectionHeader(
                       title: 'Bugünün Görevleri',
-                      subtitle: '${state.openQuests.length} açık · '
+                      subtitle:
+                          '${state.openQuests.length} açık · '
                           '${state.completedCount} tamamlandı',
                       trailing: IconButton(
                         key: const Key('refresh-quests-button'),
@@ -246,8 +189,9 @@ class DashboardScreen extends ConsumerWidget {
                             Text(
                               'Bugün için görev yok. Yeni bir görev ekle.',
                               textAlign: TextAlign.center,
-                              style: AppTypography.bodySmall
-                                  .copyWith(color: AppColors.textSecondary),
+                              style: AppTypography.bodySmall.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
                             ),
                           ],
                         ),
@@ -275,8 +219,9 @@ class DashboardScreen extends ConsumerWidget {
                         'Görevler ${setup.goals.length} hedefine göre üretildi · '
                         '${setup.tempo.label} tempo',
                         textAlign: TextAlign.center,
-                        style: AppTypography.caption
-                            .copyWith(color: AppColors.textTertiary),
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textTertiary,
+                        ),
                       ),
                     ),
                   ],
@@ -289,6 +234,7 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 }
+
 class _CircleButton extends StatelessWidget {
   const _CircleButton({
     required this.icon,
@@ -307,9 +253,7 @@ class _CircleButton extends StatelessWidget {
       message: tooltip,
       child: Material(
         color: AppColors.surface,
-        shape: const CircleBorder(
-          side: BorderSide(color: AppColors.border),
-        ),
+        shape: const CircleBorder(side: BorderSide(color: AppColors.border)),
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: onTap,
@@ -450,94 +394,162 @@ class _AuraBlob extends StatelessWidget {
   }
 }
 
+/// Karakter statları özeti — varsayılan olarak **kapalı**.
+///
+/// Dokununca radar ve beş gelişim alanı açılır; dashboard'ın üst kısmı sade
+/// kalır, detay isteyen tek dokunuşla derinliğe iner.
+class _StatsDisclosure extends StatefulWidget {
+  const _StatsDisclosure({required this.profile, required this.radar});
 
-/// Aktif partnerin "öteki yarısı" için kısa özet: canlı durum, bugünkü XP ve
-/// haftalık verimlilik. Dokununca o partnerin profiline geçilir.
-class _PartnerSnapshotCard extends ConsumerWidget {
-  const _PartnerSnapshotCard();
+  final UserProfile profile;
+  final Map<StatKey, double> radar;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final GameState state = ref.watch(gameProvider);
-    final String otherId = CouplePartner.other(state.activePartnerId);
-    final PartnerData other =
-        state.partnerData(otherId) ?? const PartnerData();
-    final CoupleState couple = ref.watch(coupleStateProvider);
-    final CoupleDuelResult duel = ref.watch(duelProvider);
-    final PartnerEfficiency efficiency = duel.forPartner(otherId);
-    final Color accent = CouplePalette.colorOf(otherId);
-    final DateTime now = DateTime.now();
+  State<_StatsDisclosure> createState() => _StatsDisclosureState();
+}
+
+class _StatsDisclosureState extends State<_StatsDisclosure> {
+  bool _open = false;
+
+  void _toggle() => setState(() => _open = !_open);
+
+  @override
+  Widget build(BuildContext context) {
+    final UserProfile profile = widget.profile;
+    final int average = profile.rpgStats.averageRadarValue.round();
 
     return SoftCard(
-      onTap: () => ref.read(gameProvider.notifier).switchPartner(otherId),
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.sm + 2,
+        AppSpacing.md,
+        AppSpacing.sm + 2,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: CouplePalette.softOf(otherId),
-              shape: BoxShape.circle,
-            ),
-            child: Text(
-              CouplePalette.emojiOf(otherId),
-              style: const TextStyle(fontSize: 17),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              key: const Key('dashboard-stats-toggle'),
+              onTap: _toggle,
+              borderRadius: AppRadii.mdAll,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                child: Row(
+                  children: <Widget>[
+                    Container(
+                      width: 34,
+                      height: 34,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.10),
+                        borderRadius: AppRadii.mdAll,
+                      ),
+                      child: const Text('📊', style: TextStyle(fontSize: 15)),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            'Karakter Statları',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.subtitle.copyWith(
+                              color: AppColors.textPrimary,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Text(
+                            _open
+                                ? 'Radar ve 5 gelişim alanı açık'
+                                : 'Radar · 5 alan · '
+                                      '${FormatX.number(profile.totalXp)} XP',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.textTertiary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    InfoPill(
+                      label: 'Ort. $average',
+                      color: AppColors.primary,
+                      dense: true,
+                    ),
+                    AnimatedRotation(
+                      turns: _open ? 0.5 : 0,
+                      duration: AppMotion.fast,
+                      child: const Icon(
+                        Icons.expand_more_rounded,
+                        color: AppColors.textTertiary,
+                        size: 20,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  '${other.displayName} bugün',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.subtitle.copyWith(
-                    color: AppColors.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                Text(
-                  '${couple.liveStatusOf(otherId).fullLabel} · '
-                  '+${state.xpTodayFor(otherId, now)} XP',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
+          AnimatedSize(
+            duration: AppMotion.base,
+            curve: AppMotion.enter,
+            alignment: Alignment.topCenter,
+            child: _open
+                ? _expanded(profile, average)
+                : const SizedBox(width: double.infinity),
           ),
-          const SizedBox(width: AppSpacing.sm),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+        ],
+      ),
+    );
+  }
+
+  Widget _expanded(UserProfile profile, int average) {
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Divider(height: AppSpacing.lg, color: AppColors.border),
+          Row(
             children: <Widget>[
-              Text(
-                '%${efficiency.percent}',
-                style: AppTypography.numeric.copyWith(
-                  color: CouplePalette.scoreColor(efficiency.percent),
-                  fontSize: 16,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'En güçlü stat: '
+                      '${profile.rpgStats.strongest.stat.label}',
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    InfoPill(
+                      label: 'Ortalama $average / 100',
+                      color: AppColors.primary,
+                      dense: true,
+                    ),
+                  ],
                 ),
               ),
-              Text(
-                'haftalık',
-                style: AppTypography.caption.copyWith(
-                  color: AppColors.textTertiary,
-                  fontSize: 10,
-                ),
-              ),
+              StatRadarChart(values: widget.radar, size: 148),
             ],
           ),
-          const SizedBox(width: AppSpacing.xs),
-          Icon(Icons.chevron_right_rounded, color: accent, size: 20),
+          const SizedBox(height: AppSpacing.md),
+          for (final StatKey stat in StatKey.values) ...<Widget>[
+            StatProgressTile(progress: profile.rpgStats[stat]),
+            const SizedBox(height: AppSpacing.sm + 2),
+          ],
         ],
       ),
     );
   }
 }
-
