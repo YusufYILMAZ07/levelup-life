@@ -5,6 +5,7 @@ import '../../../application/game_controller.dart';
 import '../../../application/game_state.dart';
 import '../../../core/theme/theme.dart';
 import '../../../domain/entities/entities.dart';
+import '../../birthday/birthday_modal.dart';
 import '../../onboarding/widgets/grade_selector.dart';
 import '../../widgets/section_header.dart';
 
@@ -45,6 +46,35 @@ class SettingsSheet extends ConsumerWidget {
     if (confirmed != true || !context.mounted) return;
     Navigator.of(context).pop();
     await ref.read(gameProvider.notifier).resetJourney();
+  }
+
+  Future<void> _confirmRestartCouple(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('Çift sürümü yeniden başlasın mı?'),
+        content: const Text(
+          'Sohbet, rubrik puanları ve bucket list hazır içerikle yenilenir. '
+          'Günlük ilerleme sıfırlanır.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Yeniden başlat'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    Navigator.of(context).pop();
+    await ref.read(gameProvider.notifier).restartCoupleJourney();
   }
 
   @override
@@ -148,6 +178,81 @@ class SettingsSheet extends ConsumerWidget {
                 ],
               ),
             ),
+            if (state.isCoupleEdition) ...<Widget>[
+              ListTile(
+                key: const Key('settings-birthday'),
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.streak.withValues(alpha: 0.12),
+                    borderRadius: AppRadii.smAll,
+                  ),
+                  child: const Icon(
+                    Icons.cake_rounded,
+                    color: AppColors.streak,
+                    size: 21,
+                  ),
+                ),
+                title: Text(
+                  'Doğum günü sürprizi',
+                  style: AppTypography.subtitle.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  'Mektup, yılın özeti ve aşk notu üretici.',
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+                trailing: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppColors.textTertiary,
+                ),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  showBirthdayExperience(context);
+                },
+              ),
+              ListTile(
+                key: const Key('settings-restart-couple'),
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.10),
+                    borderRadius: AppRadii.smAll,
+                  ),
+                  child: const Icon(
+                    Icons.favorite_rounded,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                ),
+                title: Text(
+                  'Çift sürümünü yeniden başlat',
+                  style: AppTypography.subtitle.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  'Hazır içerik ve tohum verisiyle temiz başlangıç.',
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+                trailing: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppColors.textTertiary,
+                ),
+                onTap: () => _confirmRestartCouple(context, ref),
+              ),
+            ],
             const SizedBox(height: AppSpacing.xl),
             const Divider(),
             ListTile(
@@ -174,8 +279,9 @@ class SettingsSheet extends ConsumerWidget {
               ),
               subtitle: Text(
                 'Tanışma ekranına dön, her şeyi yeniden tanımla.',
-                style: AppTypography.bodySmall
-                    .copyWith(color: AppColors.textTertiary),
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.textTertiary,
+                ),
               ),
               trailing: const Icon(
                 Icons.chevron_right_rounded,

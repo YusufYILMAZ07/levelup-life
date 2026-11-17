@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/theme.dart';
+import '../chat/chat_screen.dart';
 import '../dashboard/dashboard_screen.dart';
+import '../development/development_screen.dart';
 import '../progress/progress_screen.dart';
 
-/// Alt sekme kabuğu: **Bugün** (dashboard) ve **İlerleme** (geçmiş).
+/// Alt sekme kabuğu: **Bugün**, **Gelişim**, **Sohbet** ve **İlerleme**.
 ///
-/// `IndexedStack` kullanılır: dashboard'un kaydırma konumu ve İlerleme
-/// sekmesinin 7/30 gün seçimi sekmeler arasında korunur.
+/// `IndexedStack` kullanılır: her sekmenin kaydırma konumu, İlerleme'deki
+/// 7/30 gün seçimi ve sohbet taslağı sekmeler arasında korunur.
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -23,6 +25,18 @@ class _AppShellState extends State<AppShell> {
       icon: Icons.today_outlined,
       activeIcon: Icons.today_rounded,
       navKey: Key('nav-today'),
+    ),
+    _ShellTab(
+      label: 'Gelişim',
+      icon: Icons.auto_awesome_outlined,
+      activeIcon: Icons.auto_awesome_rounded,
+      navKey: Key('nav-development'),
+    ),
+    _ShellTab(
+      label: 'Sohbet',
+      icon: Icons.chat_bubble_outline_rounded,
+      activeIcon: Icons.chat_bubble_rounded,
+      navKey: Key('nav-chat'),
     ),
     _ShellTab(
       label: 'İlerleme',
@@ -47,6 +61,8 @@ class _AppShellState extends State<AppShell> {
         index: _index,
         children: const <Widget>[
           DashboardScreen(key: ValueKey<String>('dashboard')),
+          DevelopmentScreen(key: ValueKey<String>('development')),
+          ChatScreen(key: ValueKey<String>('chat')),
           ProgressScreen(key: ValueKey<String>('progress')),
         ],
       ),
@@ -166,13 +182,17 @@ class _NavButton extends StatelessWidget {
           child: AnimatedContainer(
             duration: AppMotion.fast,
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.xl,
+              horizontal: AppSpacing.md,
               vertical: AppSpacing.sm,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Icon(selected ? tab.activeIcon : tab.icon, size: 21, color: color),
+                Icon(
+                  selected ? tab.activeIcon : tab.icon,
+                  size: 21,
+                  color: color,
+                ),
                 const SizedBox(height: 3),
                 Text(
                   tab.label,

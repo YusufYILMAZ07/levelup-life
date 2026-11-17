@@ -154,7 +154,7 @@ void main() {
     );
   });
 
-  testWidgets('alt sekme çubuğu Bugün ↔ İlerleme arasında geçiş yapar',
+  testWidgets('alt sekme çubuğu Bugün ↔ Gelişim ↔ Sohbet ↔ İlerleme geçişi',
       (WidgetTester tester) async {
     await _pumpHost(
       tester,
@@ -176,9 +176,21 @@ void main() {
     );
     expect(find.textContaining('Yusuf'), findsWidgets);
 
-    await tester.tap(find.byKey(const Key('nav-progress')));
+    // Çift sürümü sekmeleri: dört sekme de mevcut.
+    expect(find.byKey(const Key('nav-development')), findsOneWidget);
+    expect(find.byKey(const Key('nav-chat')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('nav-development')));
     await tester.pumpAndSettle();
     expect(stack().index, 1);
+
+    await tester.tap(find.byKey(const Key('nav-chat')));
+    await tester.pumpAndSettle();
+    expect(stack().index, 2);
+
+    await tester.tap(find.byKey(const Key('nav-progress')));
+    await tester.pumpAndSettle();
+    expect(stack().index, 3);
 
     await tester.tap(find.byKey(const Key('nav-today')));
     await tester.pumpAndSettle();

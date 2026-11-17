@@ -11,6 +11,7 @@ export 'app_shadows.dart';
 export 'app_spacing.dart';
 export 'app_theme.dart';
 export 'app_typography.dart';
+export 'couple_palette.dart';
 export 'goal_palette.dart';
 export 'progression_palette.dart';
 export 'stat_palette.dart';

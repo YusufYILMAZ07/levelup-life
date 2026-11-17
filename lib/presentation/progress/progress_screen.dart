@@ -7,8 +7,10 @@ import '../../core/constants/app_constants.dart';
 import '../../core/theme/theme.dart';
 import '../../core/utils/format_x.dart';
 import '../../domain/entities/entities.dart';
+import '../widgets/couple_top_bar.dart';
 import '../widgets/section_header.dart';
 import '../widgets/soft_card.dart';
+import 'widgets/couple_duel_card.dart';
 import 'widgets/progress_range_toggle.dart';
 import 'widgets/streak_calendar.dart';
 import 'widgets/streak_hero_card.dart';
@@ -73,7 +75,17 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
                   ),
                   children: <Widget>[
                     _buildHeader(profile, log),
+                    if (state.isCoupleEdition) ...<Widget>[
+                      const SizedBox(height: AppSpacing.md),
+                      const CoupleTopBar(),
+                    ],
                     const SizedBox(height: AppSpacing.xl),
+                    if (state.isCoupleEdition) ...<Widget>[
+                      const CoupleDuelCard(),
+                      const SizedBox(height: AppSpacing.lg),
+                      const CoupleRadarCard(),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
                     StreakHeroCard(
                       streak: profile.streak,
                       activeToday: log.isActiveOn(now),

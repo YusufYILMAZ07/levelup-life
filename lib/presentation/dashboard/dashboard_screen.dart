@@ -7,11 +7,14 @@ import '../../core/constants/app_constants.dart';
 import '../../core/theme/theme.dart';
 import '../../core/utils/format_x.dart';
 import '../../domain/entities/entities.dart';
+import '../../domain/services/services.dart';
+import '../widgets/couple_top_bar.dart';
 import '../widgets/quest_card.dart';
 import '../widgets/section_header.dart';
 import '../widgets/soft_card.dart';
 import '../widgets/stat_radar_chart.dart';
 import 'widgets/add_quest_sheet.dart';
+import 'widgets/birthday_banner.dart';
 import 'widgets/level_hero_card.dart';
 import 'widgets/settings_sheet.dart';
 import 'widgets/stat_progress_tile.dart';
@@ -109,6 +112,12 @@ class DashboardScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
+                    if (state.isCoupleEdition) ...<Widget>[
+                      const SizedBox(height: AppSpacing.lg),
+                      const CoupleTopBar(),
+                      const SizedBox(height: AppSpacing.md),
+                      const BirthdayBanner(),
+                    ],
                     const SizedBox(height: AppSpacing.xl),
                     LevelHeroCard(
                       profile: profile,
@@ -146,6 +155,10 @@ class DashboardScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
+                    if (state.isCoupleEdition) ...<Widget>[
+                      const SizedBox(height: AppSpacing.md),
+                      const _PartnerSnapshotCard(),
+                    ],
                     const SizedBox(height: AppSpacing.xl),
                     SoftCard(
                       padding: const EdgeInsets.fromLTRB(
@@ -432,6 +445,97 @@ class _AuraBlob extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+/// Aktif partnerin "öteki yarısı" için kısa özet: canlı durum, bugünkü XP ve
+/// haftalık verimlilik. Dokununca o partnerin profiline geçilir.
+class _PartnerSnapshotCard extends ConsumerWidget {
+  const _PartnerSnapshotCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GameState state = ref.watch(gameProvider);
+    final String otherId = CouplePartner.other(state.activePartnerId);
+    final PartnerData other =
+        state.partnerData(otherId) ?? const PartnerData();
+    final CoupleState couple = ref.watch(coupleStateProvider);
+    final CoupleDuelResult duel = ref.watch(duelProvider);
+    final PartnerEfficiency efficiency = duel.forPartner(otherId);
+    final Color accent = CouplePalette.colorOf(otherId);
+    final DateTime now = DateTime.now();
+
+    return SoftCard(
+      onTap: () => ref.read(gameProvider.notifier).switchPartner(otherId),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: CouplePalette.softOf(otherId),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              CouplePalette.emojiOf(otherId),
+              style: const TextStyle(fontSize: 17),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  '${other.displayName} bugün',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.subtitle.copyWith(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  '${couple.liveStatusOf(otherId).fullLabel} · '
+                  '+${state.xpTodayFor(otherId, now)} XP',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              Text(
+                '%${efficiency.percent}',
+                style: AppTypography.numeric.copyWith(
+                  color: CouplePalette.scoreColor(efficiency.percent),
+                  fontSize: 16,
+                ),
+              ),
+              Text(
+                'haftalık',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.textTertiary,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Icon(Icons.chevron_right_rounded, color: accent, size: 20),
+        ],
       ),
     );
   }

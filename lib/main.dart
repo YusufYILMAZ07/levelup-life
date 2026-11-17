@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'application/couple_bootstrap.dart';
 import 'application/game_controller.dart';
 import 'core/constants/app_constants.dart';
 import 'core/theme/theme.dart';
@@ -13,6 +14,11 @@ Future<void> main() async {
   // Yerel store açılışta bir kez hazırlanır → GameController senkron kalır,
   // uygulama "loading" ekranı göstermeden doğru ekranla açılır.
   final GameStore store = await LocalGameStore.open();
+  // Hediye modu: depo boşsa (veya eski tek oyunculu kayıt varsa) çift sürümü
+  // tohumu yazılır → uygulama Yusuf & Ceyda profilleriyle açılır.
+  if (store.load()?.isCoupleEdition != true) {
+    await store.save(CoupleBootstrap.initialState());
+  }
   runApp(
     ProviderScope(
       overrides: [gameStoreProvider.overrideWithValue(store)],
