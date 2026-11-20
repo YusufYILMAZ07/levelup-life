@@ -193,9 +193,9 @@ class _PhotoLightbox extends ConsumerWidget {
 /// Anı albümü filtreleri (anahtar adları geriye dönük uyumludur).
 enum _AlbumFilter {
   all('Tümü', '✨'),
-  memories('Fotoğraflar', '📸'),
-  videos('Videolar', '🎥'),
-  proofs('Plan Kanıtları', '📅');
+  proofs('Plan & Görev Kanıtları', '📅'),
+  memories('Çift Anılarımız', '💑'),
+  videos('Videolar', '🎥');
 
   const _AlbumFilter(this.label, this.emoji);
 

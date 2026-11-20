@@ -116,6 +116,15 @@ class ChatMediaSheet extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
+            Text(
+              '🖼️ Cihazdan / Linkten Fotoğraf Yükle',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs + 1),
             _MediaTile(
               key: const Key('media-camera-photo'),
               emoji: '📷',
@@ -166,11 +175,12 @@ class ChatMediaSheet extends ConsumerWidget {
             const SizedBox(height: AppSpacing.sm),
             _MediaTile(
               key: const Key('send-schedule-proof'),
-              emoji: '📅',
-              title: 'Şu Anki Planımdan Kanıt Kartı At',
+              emoji: '📸',
+              title: 'Şu Anki Planımdan Kanıt Kartı Gönder',
               subtitle: block == null
                   ? 'Önce haftalık plana bir blok ekle'
-                  : '${block.weekdayShortLabel} · ${block.timeRangeLabel} · '
+                  : '${CouplePartner.displayName(block.partnerId)} · '
+                        '${block.weekdayShortLabel} ${block.timeRangeLabel} · '
                         '${block.category.emoji} ${block.category.shortLabel}',
               accent: AppColors.primary,
               enabled: block != null,

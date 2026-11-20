@@ -377,6 +377,69 @@ void main() {
     });
   });
 
+  group('CoupleState plan yardımcıları', () {
+    final CoupleState couple = CoupleState(scheduleBlocks: ScheduleSeed.week());
+
+    test('aktif, sıradaki ve güne özel blokları çözer', () {
+      expect(
+        couple.currentBlockFor(CouplePartner.yusufId, at(2, 14, 30))?.category,
+        ScheduleCategory.school,
+      );
+      expect(
+        couple.currentBlockFor(CouplePartner.ceydaId, at(2, 14, 30))?.category,
+        ScheduleCategory.workout,
+      );
+      expect(
+        couple.nextBlockFor(CouplePartner.yusufId, at(2, 14, 30))?.startMinutes,
+        greaterThan(14 * 60),
+      );
+      expect(
+        couple
+            .blocksForDay(CouplePartner.yusufId, DateTime.tuesday)
+            .map((ScheduleBlock block) => block.startMinutes),
+        orderedEquals(<int>[9 * 60 + 30, 14 * 60, 19 * 60]),
+      );
+    });
+
+    test('ortak boş pencereleri etiketli döndürür', () {
+      expect(couple.sharedFreeWindowsForDay(DateTime.tuesday), <String>[
+        '11:30 - 14:00',
+        '16:00 - 19:00',
+        '20:30 - 23:00',
+      ]);
+      expect(
+        couple.longestSharedFreeWindowForDay(DateTime.tuesday)?.label,
+        '16:00 - 19:00',
+      );
+    });
+
+    test('ekleme, silme ve güne özel tamamlama durumu değiştirir', () {
+      final ScheduleBlock extra = block(id: 'extra-plan', startHour: 10);
+      final CoupleState added = couple.addScheduleBlock(extra);
+      expect(added.blockById('extra-plan'), isNotNull);
+      expect(
+        added.removeScheduleBlock('extra-plan').blockById('extra-plan'),
+        isNull,
+      );
+
+      final ScheduleBlock target = couple
+          .blocksForDay(CouplePartner.yusufId, DateTime.tuesday)
+          .first;
+      final CoupleState done = couple.completeScheduleBlock(
+        target.id,
+        at(2, 15),
+      );
+      expect(done.blockById(target.id)!.isCompletedOn(at(2, 15)), isTrue);
+      expect(
+        done
+            .completeScheduleBlock(target.id, at(2, 15))
+            .blockById(target.id)!
+            .isCompletedOn(at(2, 15)),
+        isFalse,
+      );
+    });
+  });
+
   group('serileştirme', () {
     test('ScheduleBlock JSON gidiş-dönüşünde kayıpsız', () {
       final ScheduleBlock original = ScheduleBlock(

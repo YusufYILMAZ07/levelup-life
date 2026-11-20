@@ -195,6 +195,8 @@ void main() {
     await tester.tap(find.byKey(const Key('open-album')));
     await tester.pumpAndSettle();
     expect(find.text('Anı Albümü'), findsOneWidget);
+    expect(find.text('Çift Anılarımız'), findsOneWidget);
+    expect(find.text('Plan & Görev Kanıtları'), findsOneWidget);
     expect(find.text('2/2 kare · 0 favori'), findsOneWidget);
     expect(find.byKey(const Key('album-album-proof')), findsOneWidget);
     expect(find.byKey(const Key('album-album-memory')), findsOneWidget);

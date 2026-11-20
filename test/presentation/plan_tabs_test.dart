@@ -156,6 +156,47 @@ void main() {
       expect(added.first.startMinutes, 540);
       expect(find.text('Birlikte Koşu'), findsNWidgets(2));
     });
+
+    testWidgets('hızlı saat ön ayarı başlangıç ve bitişi doldurur', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, WeeklyPlanTab(now: _tuesday));
+
+      await tester.tap(find.byKey(const Key('add-schedule-button')));
+      await tester.pumpAndSettle();
+
+      final Finder preset = find.byKey(const Key('schedule-preset-840-960'));
+      await tester.ensureVisible(preset);
+      await tester.pumpAndSettle();
+      await tester.tap(preset);
+      await tester.pump();
+
+      await tester.enterText(
+        find.byKey(const Key('schedule-title-field')),
+        'Öğleden Sonra Dersi',
+      );
+      await tester.pump();
+
+      final Finder save = find.byKey(const Key('schedule-save-button'));
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(0, -520),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      final List<ScheduleBlock> added =
+          _couple(tester, find.byType(WeeklyPlanTab)).scheduleBlocks
+              .where(
+                (ScheduleBlock block) => block.title == 'Öğleden Sonra Dersi',
+              )
+              .toList();
+      expect(added, hasLength(1));
+      expect(added.single.weekday, 2);
+      expect(added.single.startMinutes, 14 * 60);
+      expect(added.single.endMinutes, 16 * 60);
+    });
   });
 
   group('blok aksiyonları', () {

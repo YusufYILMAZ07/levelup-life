@@ -34,6 +34,15 @@ class _AddScheduleSheet extends ConsumerStatefulWidget {
 }
 
 class _AddScheduleSheetState extends ConsumerState<_AddScheduleSheet> {
+  /// Sık kullanılan ders / antrenman saatleri — tek dokunuşla doldurulur.
+  static const List<List<int>> _timePresets = <List<int>>[
+    <int>[9 * 60, 11 * 60],
+    <int>[12 * 60, 14 * 60],
+    <int>[14 * 60, 16 * 60],
+    <int>[16 * 60, 18 * 60],
+    <int>[19 * 60, 21 * 60],
+  ];
+
   final TextEditingController _title = TextEditingController();
   final TextEditingController _note = TextEditingController();
 
@@ -282,6 +291,29 @@ class _AddScheduleSheetState extends ConsumerState<_AddScheduleSheet> {
                       onTap: () => _pickTime(isStart: false),
                     ),
                   ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.xs + 1),
+              const _FieldLabel('Hızlı Seç'),
+              const SizedBox(height: AppSpacing.xs + 1),
+              Wrap(
+                spacing: AppSpacing.xs + 1,
+                runSpacing: AppSpacing.xs + 1,
+                children: <Widget>[
+                  for (final List<int> preset in _timePresets)
+                    _ChoiceChip(
+                      key: Key('schedule-preset-${preset[0]}-${preset[1]}'),
+                      label:
+                          '${ScheduleBlock.clock(preset[0])}-'
+                          '${ScheduleBlock.clock(preset[1])}',
+                      selected: _start == preset[0] && _end == preset[1],
+                      color: AppColors.primary,
+                      dense: true,
+                      onTap: () => setState(() {
+                        _start = preset[0];
+                        _end = preset[1];
+                      }),
+                    ),
                 ],
               ),
               const SizedBox(height: AppSpacing.xs),
