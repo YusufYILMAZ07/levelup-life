@@ -120,7 +120,18 @@ void main() {
     final Finder completeButton = find.text('Tamamla');
     await _scrollTo(tester, completeButton);
     await tester.tap(completeButton.first);
-    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    // Görev doğrulama modalı: sayaç varsa demoyla hızlı geç, sonra onayla.
+    final Finder timerDemo = find.byKey(const Key('verification-timer-demo'));
+    if (timerDemo.evaluate().isNotEmpty) {
+      await tester.tap(timerDemo);
+      await tester.pump(const Duration(seconds: 6));
+    }
+    final Finder confirm = find.byKey(const Key('verification-confirm'));
+    expect(confirm, findsOneWidget);
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
 
     final gameState = container.read(gameProvider);
     expect(gameState.profile!.totalXp, greaterThan(0));

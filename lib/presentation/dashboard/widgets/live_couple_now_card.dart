@@ -23,7 +23,7 @@ class LiveCoupleNowCard extends ConsumerWidget {
   void _complete(BuildContext context, WidgetRef ref, ScheduleBlock block) {
     final ScheduleOutcome? outcome = ref
         .read(gameProvider.notifier)
-        .completeScheduleBlock(block.id);
+        .completeScheduleBlock(block.id, day: now);
     if (outcome == null) return;
     final String message;
     if (outcome.alreadyCompleted) {

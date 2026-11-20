@@ -5,42 +5,138 @@ import 'package:flutter/material.dart';
 import '../../core/theme/theme.dart';
 import '../../domain/entities/stat_key.dart';
 
-/// 5 statlık radar (örümcek) grafiği — onboarding özeti ve dashboard için.
+/// 5 statlık radar (örümcek) grafiği — onboarding özeti, dashboard ve
+/// Yusuf ↔ Ceyda karşılaştırması için.
 ///
 /// Değerler 0-100 aralığındadır ([StatScale] radar değerleri). Grafik saf
 /// `CustomPainter` ile çizilir; ek paket gerekmez ve her boyuta uyarlanır.
+///
+/// [secondaryValues] verilirse ikinci partnerin poligonu aynı ızgaranın
+/// üzerine çizilir (Yusuf indigo, Ceyda gül kırmızısı). Etiketler
+/// ([primaryLabel] / [secondaryLabel]) verildiğinde grafiğin altında küçük
+/// bir açıklama (legend) satırı belirir.
 class StatRadarChart extends StatelessWidget {
   const StatRadarChart({
     required this.values,
+    this.secondaryValues,
     this.size = 240,
     this.accent = AppColors.primary,
+    this.secondaryAccent = CouplePalette.ceyda,
+    this.primaryLabel,
+    this.secondaryLabel,
     this.showLabels = true,
     this.onDark = false,
     super.key,
   });
 
   final Map<StatKey, double> values;
+
+  /// İkinci partnerin aynı günkü radar değerleri (opsiyonel).
+  final Map<StatKey, double>? secondaryValues;
+
   final double size;
   final Color accent;
+  final Color secondaryAccent;
+
+  /// Legend satırındaki isimler (ör. `Yusuf`, `Ceyda`).
+  final String? primaryLabel;
+  final String? secondaryLabel;
+
   final bool showLabels;
   final bool onDark;
 
+  bool get _hasLegend =>
+      primaryLabel != null ||
+      secondaryLabel != null ||
+      secondaryValues != null;
+
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      label: 'Stat radar grafiği',
+    final Widget chart = Semantics(
+      label: secondaryValues == null
+          ? 'Stat radar grafiği'
+          : 'Karşılaştırmalı stat radar grafiği',
       child: SizedBox(
         width: size,
         height: size,
         child: CustomPaint(
           painter: _RadarPainter(
             values: values,
+            secondaryValues: secondaryValues,
             accent: accent,
+            secondaryAccent: secondaryAccent,
             showLabels: showLabels,
             onDark: onDark,
           ),
         ),
       ),
+    );
+
+    if (!_hasLegend) return chart;
+
+    return SizedBox(
+      width: size,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          chart,
+          const SizedBox(height: AppSpacing.xs),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.xxs,
+            children: <Widget>[
+              if (primaryLabel != null)
+                _RadarLegendItem(
+                  label: primaryLabel!,
+                  color: accent,
+                  onDark: onDark,
+                ),
+              if (secondaryValues != null && secondaryLabel != null)
+                _RadarLegendItem(
+                  label: secondaryLabel!,
+                  color: secondaryAccent,
+                  onDark: onDark,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RadarLegendItem extends StatelessWidget {
+  const _RadarLegendItem({
+    required this.label,
+    required this.color,
+    required this.onDark,
+  });
+
+  final String label;
+  final Color color;
+  final bool onDark;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: AppSpacing.xxs + 1),
+        Text(
+          label,
+          style: AppTypography.caption.copyWith(
+            color: onDark ? Colors.white70 : AppColors.textSecondary,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -49,12 +145,16 @@ class _RadarPainter extends CustomPainter {
   const _RadarPainter({
     required this.values,
     required this.accent,
+    required this.secondaryAccent,
     required this.showLabels,
     required this.onDark,
+    this.secondaryValues,
   });
 
   final Map<StatKey, double> values;
+  final Map<StatKey, double>? secondaryValues;
   final Color accent;
+  final Color secondaryAccent;
   final bool showLabels;
   final bool onDark;
 
@@ -107,41 +207,32 @@ class _RadarPainter extends CustomPainter {
       canvas.drawLine(center, pointAt(i, radius), axisPaint);
     }
 
-    // Veri poligonu.
-    final Path dataPath = Path();
-    for (int i = 0; i < count; i++) {
-      final double value =
-          (values[stats[i]] ?? 0).clamp(0, 100).toDouble() / 100;
-      final Offset point = pointAt(i, radius * value);
-      if (i == 0) {
-        dataPath.moveTo(point.dx, point.dy);
-      } else {
-        dataPath.lineTo(point.dx, point.dy);
-      }
+    // İkinci partnerin poligonu (varsa) önce çizilir; böylece aktif
+    // partnerin çizgisi üstte kalır ve okunabilirlik korunur.
+    if (secondaryValues != null) {
+      _paintDataPolygon(
+        canvas: canvas,
+        stats: stats,
+        pointAt: pointAt,
+        radius: radius,
+        data: secondaryValues!,
+        color: secondaryAccent,
+        fillAlpha: 0.08,
+        strokeWidth: 1.6,
+      );
     }
-    dataPath.close();
 
-    canvas.drawPath(
-      dataPath,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[
-            accent.withValues(alpha: 0.32),
-            accent.withValues(alpha: 0.08),
-          ],
-        ).createShader(Rect.fromCircle(center: center, radius: radius)),
+    // Veri poligonu.
+    _paintDataPolygon(
+      canvas: canvas,
+      stats: stats,
+      pointAt: pointAt,
+      radius: radius,
+      data: values,
+      color: accent,
+      fillAlpha: 0.30,
+      strokeWidth: 2,
     );
-    canvas.drawPath(
-      dataPath,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..strokeJoin = StrokeJoin.round
-        ..color = accent,
-    );
-
     // Noktalar.
     for (int i = 0; i < count; i++) {
       final double value =
@@ -181,6 +272,53 @@ class _RadarPainter extends CustomPainter {
     }
   }
 
+  void _paintDataPolygon({
+    required Canvas canvas,
+    required List<StatKey> stats,
+    required Offset Function(int, double) pointAt,
+    required double radius,
+    required Map<StatKey, double> data,
+    required Color color,
+    required double fillAlpha,
+    required double strokeWidth,
+  }) {
+    final Path path = Path();
+    for (int i = 0; i < stats.length; i++) {
+      final double value =
+          (data[stats[i]] ?? 0).clamp(0, 100).toDouble() / 100;
+      final Offset point = pointAt(i, radius * value);
+      if (i == 0) {
+        path.moveTo(point.dx, point.dy);
+      } else {
+        path.lineTo(point.dx, point.dy);
+      }
+    }
+    path.close();
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            color.withValues(alpha: fillAlpha),
+            color.withValues(alpha: fillAlpha * 0.25),
+          ],
+        ).createShader(
+          Rect.fromLTWH(-radius, -radius, radius * 2, radius * 2),
+        ),
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeJoin = StrokeJoin.round
+        ..color = color,
+    );
+  }
+
   Path _polygon(int count, double radius, Offset Function(int, double) pointAt) {
     final Path path = Path();
     for (int i = 0; i < count; i++) {
@@ -197,7 +335,9 @@ class _RadarPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RadarPainter oldDelegate) =>
       oldDelegate.values != values ||
+      oldDelegate.secondaryValues != secondaryValues ||
       oldDelegate.accent != accent ||
+      oldDelegate.secondaryAccent != secondaryAccent ||
       oldDelegate.showLabels != showLabels ||
       oldDelegate.onDark != onDark;
 }

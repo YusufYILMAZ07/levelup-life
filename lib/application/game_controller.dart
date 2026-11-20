@@ -344,11 +344,11 @@ final class GameController extends Notifier<GameState> {
   /// Partnerin bloğun kategorisine karşılık gelen statına +25 XP verilir ve
   /// sohbete kanıt rozeti düşülür. Aynı blok aynı gün ikinci kez
   /// tamamlanırsa XP verilmez (puan avcılığını engeller).
-  ScheduleOutcome? completeScheduleBlock(String blockId) {
+  ScheduleOutcome? completeScheduleBlock(String blockId, {DateTime? day}) {
     final ScheduleBlock? block = state.couple.blockById(blockId);
     if (block == null) return null;
 
-    final DateTime now = DateTime.now();
+    final DateTime now = day ?? DateTime.now();
     final bool alreadyCompleted = block.isCompletedOn(now);
     if (alreadyCompleted) {
       final CoupleState reset = state.couple.completeScheduleBlock(blockId, now);
@@ -636,6 +636,14 @@ final class GameController extends Notifier<GameState> {
     final String trimmed = note.trim();
     if (trimmed.isEmpty) return;
     state = state.withCouple(state.couple.addLoveNote(trimmed));
+    _persist();
+  }
+
+  /// Yusuf'un doğum günü mektubunu kişiselleştirir.
+  void setBirthdayMessage(String message) {
+    final CoupleState next = state.couple.withBirthdayMessage(message);
+    if (identical(next, state.couple)) return;
+    state = state.withCouple(next);
     _persist();
   }
 

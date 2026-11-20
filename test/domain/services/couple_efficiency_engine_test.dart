@@ -227,4 +227,50 @@ void main() {
       expect(boosted.couplePercent, lessThanOrEqualTo(100));
     });
   });
+
+  group('haftalık XP', () {
+    UserProfile profileWithXp(Map<DateTime, int> xpByDay) {
+      DailyXpLog log = DailyXpLog.empty;
+      for (final MapEntry<DateTime, int> entry in xpByDay.entries) {
+        log = log.record(at: entry.key, xp: entry.value);
+      }
+      return UserProfile.starter(
+        id: CouplePartner.yusufId,
+        displayName: 'Yusuf',
+        createdAt: DateTime(2026, 11, 1),
+      ).copyWith(xpLog: log);
+    }
+
+    test('pencere içindeki günlük XP toplamı partner bazında raporlanır', () {
+      final CoupleDuelResult duel = CoupleEfficiencyEngine.evaluate(
+        couple: const CoupleState(),
+        partners: <String, PartnerData>{
+          CouplePartner.yusufId: PartnerData(
+            profile: profileWithXp(<DateTime, int>{
+              DateTime(2026, 11, 15, 9): 40,
+              DateTime(2026, 11, 12, 18): 25,
+              DateTime(2026, 10, 31, 10): 90, // pencere dışı
+            }),
+          ),
+        },
+        now: _now,
+      );
+
+      expect(duel.yusuf.weeklyXp, 65);
+      expect(duel.ceyda.weeklyXp, 0);
+    });
+
+    test('profil yoksa haftalık XP sıfır kalır', () {
+      final CoupleDuelResult duel = CoupleEfficiencyEngine.evaluate(
+        couple: const CoupleState(),
+        partners: const <String, PartnerData>{
+          CouplePartner.yusufId: PartnerData(),
+        },
+        now: _now,
+      );
+
+      expect(duel.yusuf.weeklyXp, 0);
+      expect(duel.yusuf.hasData, isFalse);
+    });
+  });
 }

@@ -63,6 +63,7 @@ final class PartnerEfficiency {
     required this.synergyCount,
     required this.strongestPillar,
     required this.hasData,
+    this.weeklyXp = 0,
   });
 
   final String partnerId;
@@ -83,6 +84,9 @@ final class PartnerEfficiency {
   final int bonusPoints;
   final int interactions;
   final int synergyCount;
+
+  /// Pencerede günlük XP geçmişinden toplanan toplam XP.
+  final int weeklyXp;
 
   /// Penceredeki en güçlü yaşam alanı (rubrik yoksa `null`).
   final StatKey? strongestPillar;
@@ -304,6 +308,7 @@ abstract final class CoupleEfficiencyEngine {
     int activeDays = 0;
     int questsDone = 0;
     int bonusPoints = 0;
+    int weeklyXp = 0;
     final Map<StatKey, int> pillarTotals = <StatKey, int>{
       for (final PillarDefinition pillar in DevelopmentRubric.pillars)
         pillar.stat: 0,
@@ -319,6 +324,7 @@ abstract final class CoupleEfficiencyEngine {
             couple.rubricScore(partnerId, pillar.stat, day);
       }
       if ((profile?.xpLog.xpOn(day) ?? 0) > 0) activeDays++;
+      weeklyXp += profile?.xpLog.xpOn(day) ?? 0;
       questsDone += couple.questsCompletedOn(partnerId, day);
       bonusPoints += couple.bonusPointsOn(partnerId, day);
     }
@@ -399,6 +405,7 @@ abstract final class CoupleEfficiencyEngine {
       synergyCount: synergyCountFor(couple, days),
       strongestPillar: strongest,
       hasData: hasData,
+      weeklyXp: weeklyXp,
     );
   }
 

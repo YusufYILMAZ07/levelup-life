@@ -38,7 +38,7 @@ class _WeeklyPlanTabState extends ConsumerState<WeeklyPlanTab> {
   void _complete(ScheduleBlock block) {
     final ScheduleOutcome? outcome = ref
         .read(gameProvider.notifier)
-        .completeScheduleBlock(block.id);
+        .completeScheduleBlock(block.id, day: _at);
     if (outcome == null) return;
     if (outcome.alreadyCompleted) {
       _snack('${block.title} bugün zaten tamamlandı ✅');

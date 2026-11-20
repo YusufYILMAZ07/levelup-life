@@ -224,6 +224,35 @@ void main() {
     expect(restored.couple.bucketGoals.length, saved.couple.bucketGoals.length);
   });
 
+  test('doğum günü mektubu kaydedilir, boş metin varsayılana döner', () async {
+    const String custom = 'Ceyda, her gün seninle daha güçlüyüm. 💙';
+    controller().setBirthdayMessage(custom);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(state().couple.birthdayMessage, custom);
+    expect(store.load()?.couple.birthdayMessage, custom);
+
+    controller().setBirthdayMessage('   ');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(state().couple.birthdayMessage, CoupleState.defaultBirthdayMessage);
+    expect(
+      store.load()?.couple.birthdayMessage,
+      CoupleState.defaultBirthdayMessage,
+    );
+  });
+
+  test('aynı doğum günü mektubu durumu yeniden yazmaz', () {
+    final CoupleState before = state().couple;
+    controller().setBirthdayMessage(CoupleState.defaultBirthdayMessage);
+
+    expect(identical(state().couple, before), isTrue);
+    expect(
+      state().couple.withBirthdayMessage(''),
+      same(state().couple),
+    );
+  });
+
   test('store yeniden yüklenince aynı çift durumu gelir', () async {
     controller().sendMessage('Store testi');
     await Future<void>.delayed(Duration.zero);

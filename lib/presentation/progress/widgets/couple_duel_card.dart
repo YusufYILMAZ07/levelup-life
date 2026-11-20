@@ -291,8 +291,7 @@ class _DuelistTile extends StatelessWidget {
             ),
           ),
           Text(
-            '${efficiency.activeDays}/7 aktif · '
-            '${efficiency.ratedDays}/7 rubrik',
+            '⚡ ${efficiency.weeklyXp} XP · ${efficiency.activeDays}/7 gün',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: AppTypography.caption.copyWith(
@@ -463,19 +462,33 @@ class CoupleRadarCard extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
+          Center(
+            child: StatRadarChart(
+              key: const Key('dual-radar-chart'),
+              values: radarOf(yusuf),
+              secondaryValues: radarOf(ceyda),
+              size: 236,
+              accent: CouplePalette.yusuf,
+              secondaryAccent: CouplePalette.ceyda,
+              primaryLabel: '${CouplePalette.emojiOf(CouplePartner.yusufId)} '
+                  'Yusuf',
+              secondaryLabel:
+                  '${CouplePalette.emojiOf(CouplePartner.ceydaId)} Ceyda',
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
           Row(
             children: <Widget>[
               Expanded(
-                child: _RadarColumn(
+                child: _RadarSummary(
                   partnerId: CouplePartner.yusufId,
-                  values: radarOf(yusuf),
                   profile: yusuf,
                 ),
               ),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
-                child: _RadarColumn(
+                child: _RadarSummary(
                   partnerId: CouplePartner.ceydaId,
-                  values: radarOf(ceyda),
                   profile: ceyda,
                 ),
               ),
@@ -487,49 +500,49 @@ class CoupleRadarCard extends ConsumerWidget {
   }
 }
 
-class _RadarColumn extends StatelessWidget {
-  const _RadarColumn({
-    required this.partnerId,
-    required this.values,
-    required this.profile,
-  });
+class _RadarSummary extends StatelessWidget {
+  const _RadarSummary({required this.partnerId, required this.profile});
 
   final String partnerId;
-  final Map<StatKey, double> values;
   final UserProfile profile;
 
   @override
   Widget build(BuildContext context) {
     final Color accent = CouplePalette.colorOf(partnerId);
-    return Column(
-      children: <Widget>[
-        StatRadarChart(
-          values: values,
-          size: 148,
-          accent: accent,
-          showLabels: false,
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        Text(
-          '${CouplePalette.emojiOf(partnerId)} ${profile.firstName}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppTypography.bodySmall.copyWith(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w800,
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs + 2,
+      ),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.06),
+        borderRadius: AppRadii.mdAll,
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            '${CouplePalette.emojiOf(partnerId)} ${profile.firstName}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.bodySmall.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
           ),
-        ),
-        Text(
-          'Güçlü: ${profile.rpgStats.strongest.stat.label}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppTypography.caption.copyWith(
-            color: accent,
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
+          Text(
+            'Güçlü: ${profile.rpgStats.strongest.stat.label}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.caption.copyWith(
+              color: accent,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

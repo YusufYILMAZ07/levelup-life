@@ -332,7 +332,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   controller: _input,
                   onSend: _send,
                   onPhoto: _pickPhoto,
-                  onNudge: () => ref.read(gameProvider.notifier).nudgePartner(),
+                  onNudge: () {
+                    final ChatMessage? message = ref
+                        .read(gameProvider.notifier)
+                        .nudgePartner();
+                    if (message == null) return;
+                    ScaffoldMessenger.of(context)
+                      ..hideCurrentSnackBar()
+                      ..showSnackBar(
+                        const SnackBar(
+                          content: Text('💫 Dürtme gönderildi · +10 XP'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    WidgetsBinding.instance.addPostFrameCallback(
+                      (_) => _jumpToEnd(),
+                    );
+                  },
                   onLoveNote: () {
                     final ChatMessage? message = ref
                         .read(gameProvider.notifier)

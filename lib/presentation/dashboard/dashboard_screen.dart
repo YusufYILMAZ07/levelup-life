@@ -9,6 +9,7 @@ import '../../core/utils/format_x.dart';
 import '../../domain/entities/entities.dart';
 import '../widgets/couple_top_bar.dart';
 import '../widgets/quest_card.dart';
+import '../widgets/quest_verification_dialog.dart';
 import '../widgets/section_header.dart';
 import '../widgets/soft_card.dart';
 import '../widgets/stat_radar_chart.dart';
@@ -27,11 +28,17 @@ import 'widgets/stat_progress_tile.dart';
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
-  void _completeQuest(BuildContext context, WidgetRef ref, Quest quest) {
+  Future<void> _completeQuest(
+    BuildContext context,
+    WidgetRef ref,
+    Quest quest,
+  ) async {
+    final bool verified = await showQuestVerificationDialog(context, quest);
+    if (!verified || !context.mounted) return;
     final XpAward? award = ref
         .read(gameProvider.notifier)
         .completeQuest(quest.id);
-    if (award == null) return;
+    if (award == null || !context.mounted) return;
     final String message = award.leveledUp
         ? 'Seviye atladın! Lv ${award.after.level} · +${award.xpGained} XP'
         : '+${award.xpGained} XP · ${quest.stat.code} güçlendi';

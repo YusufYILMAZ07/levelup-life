@@ -106,6 +106,11 @@ class QuestCard extends StatelessWidget {
                   icon: Icons.sell_outlined,
                   color: AppColors.textTertiary,
                 ),
+                InfoPill(
+                  label: quest.verification.summary,
+                  icon: Icons.verified_user_outlined,
+                  color: AppColors.textTertiary,
+                ),
               ],
             ),
             const SizedBox(height: AppSpacing.md),

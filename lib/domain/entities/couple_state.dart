@@ -593,11 +593,18 @@ final class CoupleState {
     this.bucketGoals = const <BucketGoal>[],
     this.customLoveNotes = const <String>[],
     this.loveNoteCursor = 0,
+    this.birthdayMessage = defaultBirthdayMessage,
     this.messages = const <ChatMessage>[],
     this.stake = DuelStake.coffee,
     this.scheduleBlocks = const <ScheduleBlock>[],
     this.rewardCapsules = const <RewardCapsule>[],
   });
+
+  /// Yusuf'un Ceyda'ya doğum günü mektubu — modalden düzenlenebilir.
+  static const String defaultBirthdayMessage =
+      'Seninle hem hayatı paylaşmak hem de birlikte gelişip hedeflerimize '
+      'koşmak en güzel macera. Yeni yaşında tüm hedeflerini birlikte '
+      'gerçekleştirelim, iyi ki varsın sevgilim! ❤️';
 
   /// Bucket list maddesi tamamlandığında iki tarafa da verilen Co-Op XP.
   static const int bucketBonusXp = 50;
@@ -631,6 +638,9 @@ final class CoupleState {
   final List<BucketGoal> bucketGoals;
   final List<String> customLoveNotes;
   final int loveNoteCursor;
+
+  /// Yusuf'tan Ceyda'ya kişiselleştirilebilir doğum günü mektubu.
+  final String birthdayMessage;
 
   /// Yusuf & Ceyda'nın haftalık plan blokları (iki partnerin tek listesi).
   final List<ScheduleBlock> scheduleBlocks;
@@ -872,6 +882,7 @@ final class CoupleState {
     List<BucketGoal>? bucketGoals,
     List<String>? customLoveNotes,
     int? loveNoteCursor,
+    String? birthdayMessage,
     List<ChatMessage>? messages,
     DuelStake? stake,
     List<ScheduleBlock>? scheduleBlocks,
@@ -885,6 +896,7 @@ final class CoupleState {
     bucketGoals: bucketGoals ?? this.bucketGoals,
     customLoveNotes: customLoveNotes ?? this.customLoveNotes,
     loveNoteCursor: loveNoteCursor ?? this.loveNoteCursor,
+    birthdayMessage: birthdayMessage ?? this.birthdayMessage,
     messages: messages ?? this.messages,
     stake: stake ?? this.stake,
     scheduleBlocks: scheduleBlocks ?? this.scheduleBlocks,
@@ -956,6 +968,13 @@ final class CoupleState {
     return copyWith(loveNoteCursor: (loveNoteCursor + 1) % total);
   }
 
+  /// Doğum günü mektubunu günceller (boş metin varsayılana döner).
+  CoupleState withBirthdayMessage(String message) {
+    final String trimmed = message.trim();
+    final String next = trimmed.isEmpty ? defaultBirthdayMessage : trimmed;
+    return next == birthdayMessage ? this : copyWith(birthdayMessage: next);
+  }
+
   CoupleState addMessage(ChatMessage message) =>
       copyWith(messages: <ChatMessage>[...messages, message]);
 
@@ -987,6 +1006,7 @@ final class CoupleState {
     ],
     'custom_love_notes': customLoveNotes,
     'love_note_cursor': loveNoteCursor,
+    'birthday_message': birthdayMessage,
     'messages': <Map<String, dynamic>>[
       for (final ChatMessage message in messages) message.toJson(),
     ],
@@ -1073,6 +1093,10 @@ final class CoupleState {
       bucketGoals: goals,
       customLoveNotes: JsonX.asStringList(json['custom_love_notes']),
       loveNoteCursor: JsonX.asInt(json['love_note_cursor']),
+      birthdayMessage: JsonX.asString(
+        json['birthday_message'],
+        fallback: CoupleState.defaultBirthdayMessage,
+      ),
       messages: messages,
       stake: DuelStake.fromCode(JsonX.asString(json['stake'])),
       scheduleBlocks: rawSchedule is List ? schedule : ScheduleSeed.week(),
@@ -1087,6 +1111,24 @@ final class CoupleState {
     final DateTime at = now ?? DateTime.now();
     return CoupleState(
       bucketGoals: const <BucketGoal>[
+        BucketGoal(
+          id: 'bucket-morning-coffee',
+          emoji: '☕',
+          title: 'Birlikte sabah kahvesi ve 1 saat kesintisiz okuma seansı',
+          detail: 'Telefonlar ters, kahveler sıcak, sayfalar bizim.',
+        ),
+        BucketGoal(
+          id: 'bucket-joint-300',
+          emoji: '🏆',
+          title: 'Haftalık 300 ortak gelişim puanına ulaşmak',
+          detail: 'Rubrik + hızlı eylemler + görevler birlikte sayılır.',
+        ),
+        BucketGoal(
+          id: 'bucket-new-place',
+          emoji: '📸',
+          title: 'Birlikte yeni bir yer keşfetmek ve fotoğraf çekinmek',
+          detail: 'Galerimizde yeni bir anı karesi daha.',
+        ),
         BucketGoal(
           id: 'bucket-cappadocia',
           emoji: '🎈',

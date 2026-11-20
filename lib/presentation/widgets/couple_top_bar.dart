@@ -5,6 +5,7 @@ import '../../application/game_controller.dart';
 import '../../application/game_state.dart';
 import '../../core/theme/theme.dart';
 import '../../domain/entities/entities.dart';
+import '../birthday/birthday_modal.dart';
 
 /// Çift sürümünün üst barı.
 ///
@@ -78,6 +79,52 @@ class CoupleTopBar extends ConsumerWidget {
                 const SizedBox(width: AppSpacing.sm),
             ],
           ],
+        ),
+        const SizedBox(height: AppSpacing.xs + 2),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Material(
+            color: CouplePalette.ceyda.withValues(alpha: 0.08),
+            borderRadius: AppRadii.pillAll,
+            child: InkWell(
+              key: const Key('birthday-surprise'),
+              onTap: () => showBirthdayExperience(context),
+              borderRadius: AppRadii.pillAll,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.xs + 2,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: AppRadii.pillAll,
+                  border: Border.all(
+                    color: CouplePalette.ceyda.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Text('🎂', style: TextStyle(fontSize: 13)),
+                    const SizedBox(width: AppSpacing.xs),
+                    Text(
+                      'Doğum Günü Sürprizi',
+                      style: AppTypography.caption.copyWith(
+                        color: CouplePalette.ceyda,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      size: 15,
+                      color: CouplePalette.ceyda,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ],
     );
