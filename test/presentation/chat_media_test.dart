@@ -130,6 +130,7 @@ void main() {
     await tester.tap(find.byKey(const Key('open-album')));
     await tester.pumpAndSettle();
     expect(find.text('Anı Albümü'), findsOneWidget);
+    expect(find.text('Ortak fotoğraf & video galerimiz'), findsOneWidget);
     expect(find.byKey(const Key('album-photo-1')), findsOneWidget);
     expect(find.byKey(const Key('album-video-1')), findsOneWidget);
 

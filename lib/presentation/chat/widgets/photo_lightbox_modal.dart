@@ -250,6 +250,13 @@ class _MemoryAlbumSheetState extends ConsumerState<_MemoryAlbumSheet> {
             ),
             const SizedBox(height: AppSpacing.xxs),
             Text(
+              'Ortak fotoğraf & video galerimiz',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textTertiary,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
               '${photos.length}/${all.length} kare · '
               '${couple.likedPhotoCount} favori',
               style: AppTypography.bodySmall.copyWith(

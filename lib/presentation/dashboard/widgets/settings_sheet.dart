@@ -906,7 +906,7 @@ class _CloudSyncSettingsState extends ConsumerState<_CloudSyncSettings> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         const SectionHeader(
-          title: '☁️ İki Telefon Canlı Senkronizasyon',
+          title: '☁️ İki Telefon Canlı Senkronizasyon (Supabase)',
           subtitle:
               'Supabase ile dünyanın her yerinden aynı oda. Boş bırakırsan '
               'uygulama tamamen yerel çalışır.',
@@ -969,7 +969,8 @@ class _CloudSyncSettingsState extends ConsumerState<_CloudSyncSettings> {
         ),
         const SizedBox(height: AppSpacing.sm),
         Text(
-          'Bu Telefon',
+          'Bu Telefon: ${CouplePalette.nameOf(_role)} '
+          '${CouplePalette.emojiOf(_role)}',
           style: AppTypography.caption.copyWith(
             color: AppColors.textSecondary,
             fontWeight: FontWeight.w800,

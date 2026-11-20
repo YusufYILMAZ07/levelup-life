@@ -46,6 +46,11 @@ void main() {
     expect(find.byKey(const Key('cloud-key')), findsOneWidget);
     expect(find.byKey(const Key('cloud-room')), findsOneWidget);
     expect(find.byKey(const Key('cloud-connect')), findsOneWidget);
+    expect(
+      find.textContaining('İki Telefon Canlı Senkronizasyon'),
+      findsOneWidget,
+    );
+    expect(find.text('Bu Telefon: Yusuf 💻'), findsOneWidget);
   });
 
   testWidgets('mesaj bildirimi anahtarı ayarı kalıcı olarak değiştirir', (

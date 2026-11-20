@@ -163,6 +163,18 @@ class _AppServicesState extends ConsumerState<AppServices>
       )
       .join('|');
 
+  /// Tüm bildirim anahtarları kapalıyken biri açılırsa OS iznini yeniden
+  /// ister (özellikle Android 13+ ve iOS). İzin sonrası plan hatırlatıcıları
+  /// yenilenir; aksi halde ilk izin reddedildiğinde sessiz kalırdı.
+  Future<void> _ensureNotificationPermission() async {
+    final bool ready = await NotificationService.instance.init();
+    if (!ready) return;
+    await NotificationService.instance.requestPermissions();
+    _planSignature = '';
+    if (!mounted) return;
+    _syncSchedules(ref.read(gameProvider), ref.read(appSettingsProvider));
+  }
+
   void _syncSchedules(GameState state, AppSettings settings) {
     final List<ScheduleBlock> blocks = state.couple.scheduleBlocks;
     final String signature = <String>[
@@ -213,6 +225,17 @@ class _AppServicesState extends ConsumerState<AppServices>
       AppSettings next,
     ) {
       if (previous == null) return;
+      final bool hadNotifications =
+          previous.messageNotifications ||
+          previous.planReminders ||
+          previous.dailyCheckinReminder;
+      final bool wantsNotifications =
+          next.messageNotifications ||
+          next.planReminders ||
+          next.dailyCheckinReminder;
+      if (!hadNotifications && wantsNotifications) {
+        unawaited(_ensureNotificationPermission());
+      }
       ref.read(pinLockProvider.notifier).syncWithSettings();
       _syncSchedules(ref.read(gameProvider), next);
       unawaited(ref.read(cloudSyncProvider).configure(next));
