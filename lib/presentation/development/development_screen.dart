@@ -144,6 +144,12 @@ class _DevelopmentScreenState extends ConsumerState<DevelopmentScreen> {
                       child: _PillarCard(
                         pillar: pillar,
                         score: couple.rubricScore(activeId, pillar.stat, at),
+                        partnerId: activeId,
+                        partnerScore: couple.rubricScore(
+                          CouplePartner.other(activeId),
+                          pillar.stat,
+                          at,
+                        ),
                         onScore: (int score) =>
                             _rate(context, pillar.stat, score),
                       ),
@@ -483,11 +489,15 @@ class _PillarCard extends StatelessWidget {
   const _PillarCard({
     required this.pillar,
     required this.score,
+    required this.partnerId,
+    required this.partnerScore,
     required this.onScore,
   });
 
   final PillarDefinition pillar;
   final int score;
+  final String partnerId;
+  final int partnerScore;
   final ValueChanged<int> onScore;
 
   @override
@@ -543,10 +553,27 @@ class _PillarCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              InfoPill(
-                label: '$score/${DevelopmentRubric.maxScore}',
-                color: score > 0 ? accent : AppColors.textTertiary,
-                dense: true,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  InfoPill(
+                    label:
+                        '${CouplePalette.emojiOf(partnerId)} '
+                        '$score/${DevelopmentRubric.maxScore}',
+                    color: score > 0 ? accent : AppColors.textTertiary,
+                    dense: true,
+                  ),
+                  const SizedBox(width: 3),
+                  InfoPill(
+                    label:
+                        '${CouplePalette.emojiOf(CouplePartner.other(partnerId))} '
+                        '$partnerScore/${DevelopmentRubric.maxScore}',
+                    color: partnerScore > 0
+                        ? CouplePalette.colorOf(CouplePartner.other(partnerId))
+                        : AppColors.textTertiary,
+                    dense: true,
+                  ),
+                ],
               ),
             ],
           ),

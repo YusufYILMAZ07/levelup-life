@@ -201,7 +201,7 @@ class _PartnerColumn extends StatelessWidget {
           SoftCard(
             padding: const EdgeInsets.all(AppSpacing.md),
             child: Text(
-              'Bu gün için plan yok.\n＋ Plan Ekle ile başla.',
+              'Bu gün için plan yok.\n＋ Yeni Plan Ekle ile başla.',
               style: AppTypography.caption.copyWith(
                 color: AppColors.textTertiary,
                 height: 1.3,
@@ -481,11 +481,22 @@ class _ScheduleBlockTile extends StatelessWidget {
                   ),
                   if (active)
                     Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: AppColors.success,
-                        shape: BoxShape.circle,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.14),
+                        borderRadius: AppRadii.pillAll,
+                      ),
+                      child: Text(
+                        'ŞU AN AKTİF 🔥',
+                        maxLines: 1,
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.success,
+                          fontSize: 7.5,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     )
                   else if (completed)
@@ -722,7 +733,7 @@ class _SheetAction extends StatelessWidget {
   }
 }
 
-/// "＋ Plan Ekle" butonu.
+/// "＋ Yeni Plan Ekle" butonu.
 class _AddPlanButton extends StatelessWidget {
   const _AddPlanButton({required this.onTap});
 
@@ -748,7 +759,7 @@ class _AddPlanButton extends StatelessWidget {
               const Icon(Icons.add_rounded, size: 14, color: Colors.white),
               const SizedBox(width: 3),
               Text(
-                'Plan Ekle',
+                'Yeni Plan Ekle',
                 style: AppTypography.caption.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,

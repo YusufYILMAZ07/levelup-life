@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../application/game_controller.dart';
 import '../../../application/game_state.dart';
 import '../../../core/theme/theme.dart';
+import '../../../core/utils/image_url.dart';
 import '../../../domain/entities/entities.dart';
 import 'photo_presets.dart';
 
@@ -11,6 +12,7 @@ import 'photo_presets.dart';
 enum ChatMediaAction {
   cameraPhoto,
   galleryPhoto,
+  imageUrl,
   galleryVideo,
   cameraVideo,
   scheduleProof,
@@ -18,10 +20,13 @@ enum ChatMediaAction {
 }
 
 final class ChatMediaChoice {
-  const ChatMediaChoice(this.action, {this.preset});
+  const ChatMediaChoice(this.action, {this.preset, this.url});
 
   final ChatMediaAction action;
   final PhotoPreset? preset;
+
+  /// [ChatMediaAction.imageUrl] seçildiğinde doğrulanmış görsel bağlantısı.
+  final String? url;
 }
 
 /// Kamera / galeri / plan kanıtı seçeneklerini sunan temiz alt sayfa.
@@ -131,6 +136,21 @@ class ChatMediaSheet extends ConsumerWidget {
               onTap: () => Navigator.of(
                 context,
               ).pop(const ChatMediaChoice(ChatMediaAction.galleryPhoto)),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _MediaTile(
+              key: const Key('media-image-url'),
+              emoji: '🔗',
+              title: 'Linkten Fotoğraf Yükle',
+              subtitle: 'Herkese açık bir görsel bağlantısı yapıştır',
+              accent: AppColors.statIntelligence,
+              onTap: () async {
+                final String? url = await showImageUrlDialog(context);
+                if (url == null || !context.mounted) return;
+                Navigator.of(
+                  context,
+                ).pop(ChatMediaChoice(ChatMediaAction.imageUrl, url: url));
+              },
             ),
             const SizedBox(height: AppSpacing.sm),
             _MediaTile(
@@ -310,6 +330,96 @@ class _MediaTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Kullanıcıdan görsel bağlantısı ister; boş/geçersiz girdiyi kabul etmez.
+Future<String?> showImageUrlDialog(BuildContext context) {
+  return showDialog<String>(
+    context: context,
+    builder: (BuildContext dialogContext) => const _ImageUrlDialog(),
+  );
+}
+
+class _ImageUrlDialog extends StatefulWidget {
+  const _ImageUrlDialog();
+
+  @override
+  State<_ImageUrlDialog> createState() => _ImageUrlDialogState();
+}
+
+class _ImageUrlDialogState extends State<_ImageUrlDialog> {
+  final TextEditingController _controller = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final String? url = normalizeImageUrl(_controller.text);
+    if (url == null) {
+      setState(
+        () => _error = 'Geçerli bir http(s) görsel bağlantısı yapıştır.',
+      );
+      return;
+    }
+    Navigator.of(context).pop(url);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('🔗 Linkten Fotoğraf'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'Herkese açık bir görsel bağlantısı ya da data:image adresi yapıştır.',
+            style: TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('image-url-input'),
+            controller: _controller,
+            autofocus: true,
+            maxLines: 2,
+            keyboardType: TextInputType.url,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+            decoration: const InputDecoration(
+              hintText: 'https://ornek.com/foto.jpg',
+            ),
+          ),
+          if (_error != null) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              key: const Key('image-url-error'),
+              style: TextStyle(
+                color: AppColors.danger,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Vazgeç'),
+        ),
+        TextButton(
+          key: const Key('image-url-confirm'),
+          onPressed: _submit,
+          child: const Text('Ekle'),
+        ),
+      ],
     );
   }
 }

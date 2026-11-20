@@ -696,6 +696,27 @@ final class GameController extends Notifier<GameState> {
     return message;
   }
 
+  /// Duygu kapsüllerinden seçilen metni aşk notu olarak sohbete gönderir.
+  ///
+  /// [sendLoveNote] üreticiyi ilerletir; bu metot ise kullanıcının seçtiği
+  /// metni olduğu gibi gönderir.
+  ChatMessage? sendLoveMessage(String text) {
+    final String note = text.trim();
+    if (note.isEmpty) return null;
+    final ChatMessage message = _appendMessage(
+      ChatMessage(
+        id: _newMessageId('love'),
+        senderId: state.activePartnerId,
+        createdAt: DateTime.now(),
+        text: note,
+        kind: ChatMessageKind.loveNote,
+      ),
+      persist: false,
+    );
+    _persist();
+    return message;
+  }
+
   /// Üretici imlecini kaydırmadan sonraki notu gösterir.
   void cycleLoveNote() {
     state = state.withCouple(state.couple.cycleLoveNote());

@@ -7,6 +7,7 @@ import '../../../domain/entities/entities.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/soft_card.dart';
 import 'add_capsule_sheet.dart';
+import 'mood_capsules_section.dart';
 
 /// **Kapsüller & Ödüller** alt sekmesi.
 ///
@@ -100,6 +101,8 @@ class RewardCapsulesTab extends ConsumerWidget {
               ),
             ),
           ),
+        const SizedBox(height: AppSpacing.xl),
+        const MoodCapsulesSection(),
       ],
     );
   }
@@ -407,6 +410,34 @@ class _CapsuleCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.xs + 1),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    '${points.clamp(0, capsule.requiredPoints)} / '
+                    '${capsule.requiredPoints} Puan',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textSecondary,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  '%${(progress * 100).round()}',
+                  style: AppTypography.caption.copyWith(
+                    color: unlocked
+                        ? AppColors.success
+                        : AppColors.textTertiary,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 3),
             ClipRRect(
               borderRadius: AppRadii.pillAll,
               child: LinearProgressIndicator(

@@ -7,6 +7,7 @@ import '../../application/game_controller.dart';
 import '../../application/game_state.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/theme.dart';
+import '../../core/utils/image_url.dart';
 import '../../domain/entities/entities.dart';
 import '../../services/app_settings.dart';
 import '../../services/cloud_sync_coordinator.dart';
@@ -206,16 +207,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<String?> _askCaption({required String title}) async {
-    final TextEditingController controller = TextEditingController();
-    final String? caption = await showDialog<String>(
+    String caption = '';
+    return showDialog<String>(
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
         title: Text(title),
         content: TextField(
           key: const Key('photo-caption-input'),
-          controller: controller,
           autofocus: true,
           maxLines: 2,
+          onChanged: (String value) => caption = value,
           decoration: const InputDecoration(
             hintText: 'Bir not ekle (opsiyonel)',
           ),
@@ -226,15 +227,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: const Text('Vazgeç'),
           ),
           TextButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text.trim()),
+            onPressed: () => Navigator.of(dialogContext).pop(caption.trim()),
             child: const Text('Paylaş'),
           ),
         ],
       ),
     );
-    controller.dispose();
-    return caption;
   }
 
   Future<void> _pickPhoto() async {
@@ -272,6 +270,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
 
+    if (choice.action == ChatMediaAction.imageUrl) {
+      await _sendImageUrl(choice.url ?? '');
+      return;
+    }
+
     if (choice.action == ChatMediaAction.cameraPhoto) {
       await _pickDeviceImage(ImageSource.camera);
       return;
@@ -293,6 +296,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (choice.action == ChatMediaAction.cameraVideo) {
       await _pickDeviceVideo(ImageSource.camera);
     }
+  }
+
+  Future<void> _sendImageUrl(String rawUrl) async {
+    final String? url = normalizeImageUrl(rawUrl);
+    if (url == null) {
+      _snack('Geçerli bir görsel bağlantısı yapıştır 🔗');
+      return;
+    }
+    final String? caption = await _askCaption(title: '🔗 Linkten Fotoğraf');
+    if (caption == null || !mounted) return;
+    final ChatMessage? message = ref
+        .read(gameProvider.notifier)
+        .sendPhoto(
+          photoDataOrUrl: url,
+          caption: caption,
+          replyTo: _replyTarget,
+        );
+    if (message == null) return;
+    setState(() => _replyTarget = null);
+    _snack('📸 Fotoğraf gönderildi');
+    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
   }
 
   Future<void> _pickDeviceImage(ImageSource source) async {

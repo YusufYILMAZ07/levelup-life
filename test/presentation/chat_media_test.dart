@@ -144,4 +144,49 @@ void main() {
     expect(find.byKey(const Key('album-photo-1')), findsOneWidget);
     expect(find.byKey(const Key('album-video-1')), findsNothing);
   });
+
+  testWidgets('linkten fotoğraf yükler ve sohbete ekler', (
+    WidgetTester tester,
+  ) async {
+    await pump(tester, CoupleBootstrap.initialState());
+
+    await tester.tap(find.byKey(const Key('chat-photo')));
+    await tester.pumpAndSettle();
+    expect(find.text('Linkten Fotoğraf Yükle'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('media-image-url')));
+    await tester.pumpAndSettle();
+    expect(find.text('🔗 Linkten Fotoğraf'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('image-url-input')),
+      'gecersiz-link',
+    );
+    await tester.tap(find.byKey(const Key('image-url-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('image-url-error')), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('image-url-input')),
+      'https://example.com/couple.png',
+    );
+    await tester.tap(find.byKey(const Key('image-url-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('photo-caption-input')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('photo-caption-input')),
+      'Kampüs anısı',
+    );
+    await tester.tap(find.text('Paylaş'));
+    await tester.pumpAndSettle();
+
+    final ProviderContainer container = ProviderScope.containerOf(
+      tester.element(find.byType(ChatScreen)),
+    );
+    final ChatMessage sent = container.read(gameProvider).couple.messages.last;
+    expect(sent.kind, ChatMessageKind.photo);
+    expect(sent.photoDataOrUrl, 'https://example.com/couple.png');
+    expect(sent.photoCaption, 'Kampüs anısı');
+  });
 }
