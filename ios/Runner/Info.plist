@@ -26,6 +26,18 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Yusuf &amp; Ceyda sohbeti ve görev kanıtları için fotoğraf ve video çekmek.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Galeriden fotoğraf ve video seçip paylaşmak.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Video kaydı sırasında ses alabilmek.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Çektiğin fotoğraf ve videoları anı albümüne kaydetmek.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

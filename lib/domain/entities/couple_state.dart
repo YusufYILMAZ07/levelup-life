@@ -754,10 +754,11 @@ final class CoupleState {
       SchedulePlanner.blockById(scheduleBlocks, blockId);
 
   /// Ortak boşluklar — `['16:00 - 18:00', '20:30 - 23:00']`.
-  List<String> sharedFreeWindowsForDay(int weekday) => SchedulePlanner
-      .sharedFreeWindows(scheduleBlocks, weekday)
-      .map((FreeWindow window) => window.label)
-      .toList(growable: false);
+  List<String> sharedFreeWindowsForDay(int weekday) =>
+      SchedulePlanner.sharedFreeWindows(
+        scheduleBlocks,
+        weekday,
+      ).map((FreeWindow window) => window.label).toList(growable: false);
 
   /// Günün en uzun ortak boşluğu (dashboard pill'i).
   FreeWindow? longestSharedFreeWindowForDay(int weekday) =>
@@ -766,9 +767,8 @@ final class CoupleState {
   CoupleState addScheduleBlock(ScheduleBlock block) =>
       copyWith(scheduleBlocks: <ScheduleBlock>[...scheduleBlocks, block]);
 
-  CoupleState addScheduleBlocks(Iterable<ScheduleBlock> blocks) => copyWith(
-    scheduleBlocks: <ScheduleBlock>[...scheduleBlocks, ...blocks],
-  );
+  CoupleState addScheduleBlocks(Iterable<ScheduleBlock> blocks) =>
+      copyWith(scheduleBlocks: <ScheduleBlock>[...scheduleBlocks, ...blocks]);
 
   CoupleState removeScheduleBlock(String blockId) => copyWith(
     scheduleBlocks: scheduleBlocks
@@ -808,9 +808,7 @@ final class CoupleState {
 
   /// Puanı yeten kapsül sayısı (kilit açılmış).
   int get unlockedCapsuleCount => rewardCapsules
-      .where(
-        (RewardCapsule capsule) => capsule.isUnlockedFor(combinedPoints),
-      )
+      .where((RewardCapsule capsule) => capsule.isUnlockedFor(combinedPoints))
       .length;
 
   /// Puanı yeten ilk kapsül (dashboard'daki "sıradaki ödül" ipucu).
@@ -836,9 +834,8 @@ final class CoupleState {
     );
   }
 
-  CoupleState addCapsule(RewardCapsule capsule) => copyWith(
-    rewardCapsules: <RewardCapsule>[...rewardCapsules, capsule],
-  );
+  CoupleState addCapsule(RewardCapsule capsule) =>
+      copyWith(rewardCapsules: <RewardCapsule>[...rewardCapsules, capsule]);
 
   bool hasSynergy(StatKey pillar, DateTime day) =>
       synergyKeys.contains(synergyKey(pillar, day));
@@ -863,11 +860,68 @@ final class CoupleState {
   }
 
   List<ChatMessage> get photoMessages => messages
-      .where((ChatMessage message) => message.hasPhoto)
+      .where((ChatMessage message) => message.hasMedia)
+      .toList(growable: false);
+
+  /// Yalnızca fotoğraflar (plan kanıtı ve hazır anı kartları dahil).
+  List<ChatMessage> get imageMessages => messages
+      .where((ChatMessage message) => message.hasImage)
+      .toList(growable: false);
+
+  /// Yalnızca videolar.
+  List<ChatMessage> get videoMessages => messages
+      .where((ChatMessage message) => message.hasVideo)
       .toList(growable: false);
 
   int get likedPhotoCount =>
       photoMessages.where((ChatMessage message) => message.isLiked).length;
+
+  ChatMessage? messageById(String id) {
+    for (final ChatMessage message in messages) {
+      if (message.id == id) return message;
+    }
+    return null;
+  }
+
+  /// `readerId` dışındaki gönderenlerin mesajlarını okundu işaretler.
+  CoupleState markMessagesRead({required String readerId}) {
+    bool changed = false;
+    final List<ChatMessage> next = <ChatMessage>[
+      for (final ChatMessage message in messages)
+        if (message.senderId != readerId && !message.isRead)
+          () {
+            changed = true;
+            return message.markRead();
+          }()
+        else
+          message,
+    ];
+    return changed ? copyWith(messages: next) : this;
+  }
+
+  CoupleState deleteMessage(String messageId) {
+    final List<ChatMessage> next = messages
+        .where((ChatMessage message) => message.id != messageId)
+        .toList(growable: false);
+    return next.length == messages.length ? this : copyWith(messages: next);
+  }
+
+  CoupleState upsertMessage(ChatMessage message) {
+    bool found = false;
+    final List<ChatMessage> next = <ChatMessage>[
+      for (final ChatMessage item in messages)
+        if (item.id == message.id)
+          () {
+            found = true;
+            return message;
+          }()
+        else
+          item,
+    ];
+    return found
+        ? copyWith(messages: next)
+        : copyWith(messages: <ChatMessage>[...messages, message]);
+  }
 
   ChatMessage? get lastMessage => messages.isEmpty ? null : messages.last;
 
@@ -1100,9 +1154,7 @@ final class CoupleState {
       messages: messages,
       stake: DuelStake.fromCode(JsonX.asString(json['stake'])),
       scheduleBlocks: rawSchedule is List ? schedule : ScheduleSeed.week(),
-      rewardCapsules: rawCapsules is List
-          ? capsules
-          : RewardCapsule.starter,
+      rewardCapsules: rawCapsules is List ? capsules : RewardCapsule.starter,
     );
   }
 

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/platform/local_media.dart';
 import '../../../core/theme/theme.dart';
 import 'photo_presets.dart';
 
@@ -59,6 +60,8 @@ class CouplePhoto extends StatelessWidget {
                       ImageChunkEvent? progress,
                     ) => progress == null ? child : const _PhotoFallback(),
               )
+            else if (isLocalMediaPath(source))
+              _LocalFileSurface(path: source)
             else
               const _PhotoFallback(),
             if (caption != null && caption!.trim().isNotEmpty)
@@ -174,6 +177,24 @@ class _MemorySurface extends StatelessWidget {
     } on FormatException {
       return const _PhotoFallback();
     }
+  }
+}
+
+/// iOS / Android'de uygulamanın `media/` klasöründen okunan gerçek fotoğraf.
+class _LocalFileSurface extends StatelessWidget {
+  const _LocalFileSurface({required this.path});
+
+  final String path;
+
+  @override
+  Widget build(BuildContext context) {
+    final ImageProvider<Object>? provider = localImageProvider(path);
+    if (provider == null) return const _PhotoFallback();
+    return Image(
+      image: provider,
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) => const _PhotoFallback(),
+    );
   }
 }
 

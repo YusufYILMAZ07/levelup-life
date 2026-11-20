@@ -7,7 +7,7 @@ abstract final class AppConstants {
   // ── Ürün kimliği ─────────────────────────────────────────────────────────
   static const String appName = 'LevelUp Life';
   static const String appTagline = 'Hayatını seviye atlat.';
-  static const String appVersion = '0.1.0';
+  static const String appVersion = '4.0.0';
 
   // ── İlerleme sınırları ───────────────────────────────────────────────────
   static const int minLevel = 1;
@@ -42,6 +42,9 @@ abstract final class AppConstants {
   static const String cacheUserProfile = 'cache.user_profile';
   static const String cacheActiveQuests = 'cache.active_quests';
   static const String cacheWeeklyReport = 'cache.weekly_report';
+
+  /// Cihaz tercihleri: bildirimler, PIN, Supabase, avatarlar.
+  static const String cacheAppSettings = 'cache.app_settings';
 
   // ── Deney bayrakları (ileride remote config ile ezilecek) ────────────────
   static const bool enableHaptics = true;

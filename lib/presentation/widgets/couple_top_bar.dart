@@ -6,6 +6,7 @@ import '../../application/game_state.dart';
 import '../../core/theme/theme.dart';
 import '../../domain/entities/entities.dart';
 import '../birthday/birthday_modal.dart';
+import 'partner_avatar.dart';
 
 /// Çift sürümünün üst barı.
 ///
@@ -195,10 +196,7 @@ class _PartnerSegment extends StatelessWidget {
                         : CouplePalette.softOf(partnerId),
                     shape: BoxShape.circle,
                   ),
-                  child: Text(
-                    CouplePalette.emojiOf(partnerId),
-                    style: const TextStyle(fontSize: 15),
-                  ),
+                  child: PartnerAvatar(partnerId: partnerId, size: 26),
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(

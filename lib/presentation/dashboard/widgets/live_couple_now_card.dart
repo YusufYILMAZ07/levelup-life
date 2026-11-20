@@ -5,6 +5,7 @@ import '../../../application/game_controller.dart';
 import '../../../application/shell_controller.dart';
 import '../../../core/theme/theme.dart';
 import '../../../domain/entities/entities.dart';
+import '../../widgets/partner_avatar.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/soft_card.dart';
 
@@ -201,6 +202,8 @@ class _PartnerNowPanel extends StatelessWidget {
       children: <Widget>[
         Row(
           children: <Widget>[
+            PartnerAvatar(partnerId: partnerId, size: 24),
+            const SizedBox(width: AppSpacing.xs + 2),
             Expanded(
               child: Text(
                 CouplePartner.badge(partnerId),

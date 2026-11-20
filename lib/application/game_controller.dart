@@ -114,7 +114,8 @@ final class GameController extends Notifier<GameState> {
   void switchPartner(String partnerId) {
     final GameState next = state.activatePartner(partnerId);
     if (identical(next, state)) return;
-    state = next;
+    // Telefonu devralan partner, karşı taraftan gelen mesajları görmüş olur.
+    state = next.withCouple(next.couple.markMessagesRead(readerId: partnerId));
     _persist();
   }
 
@@ -351,7 +352,10 @@ final class GameController extends Notifier<GameState> {
     final DateTime now = day ?? DateTime.now();
     final bool alreadyCompleted = block.isCompletedOn(now);
     if (alreadyCompleted) {
-      final CoupleState reset = state.couple.completeScheduleBlock(blockId, now);
+      final CoupleState reset = state.couple.completeScheduleBlock(
+        blockId,
+        now,
+      );
       if (!identical(reset, state.couple)) {
         state = state.withCouple(reset);
         _persist();
@@ -525,9 +529,12 @@ final class GameController extends Notifier<GameState> {
   }
 
   /// Aktif partner adına metin mesajı gönderir.
+  ///
+  /// [replyTo] verilirse balonun içinde alıntı şeridi gösterilir.
   ChatMessage? sendMessage(
     String text, {
     ChatMessageKind kind = ChatMessageKind.text,
+    ChatMessage? replyTo,
   }) {
     final String trimmed = text.trim();
     if (trimmed.isEmpty) return null;
@@ -538,6 +545,8 @@ final class GameController extends Notifier<GameState> {
         createdAt: DateTime.now(),
         text: trimmed,
         kind: kind,
+        replyToMessageId: replyTo?.id,
+        replyPreviewText: replyTo?.preview,
       ),
     );
   }
@@ -546,19 +555,81 @@ final class GameController extends Notifier<GameState> {
   ChatMessage? sendPhoto({
     required String photoDataOrUrl,
     String caption = '',
+    ChatMessage? replyTo,
+  }) => sendMedia(
+    mediaPathOrUrl: photoDataOrUrl,
+    mediaType: ChatMediaType.image,
+    caption: caption,
+    replyTo: replyTo,
+  );
+
+  /// Cihazdan seçilen fotoğraf / videoyu sohbete ve anı albümüne ekler.
+  ChatMessage? sendMedia({
+    required String mediaPathOrUrl,
+    required ChatMediaType mediaType,
+    String caption = '',
+    String? thumbnailPath,
+    int durationSeconds = 0,
+    ChatMessage? replyTo,
   }) {
-    final String source = photoDataOrUrl.trim();
-    if (source.isEmpty) return null;
+    final String source = mediaPathOrUrl.trim();
+    if (source.isEmpty || mediaType == ChatMediaType.none) return null;
+    final String cleanCaption = caption.trim();
     return _appendMessage(
       ChatMessage(
-        id: _newMessageId('photo'),
+        id: _newMessageId(mediaType == ChatMediaType.video ? 'video' : 'photo'),
         senderId: state.activePartnerId,
         createdAt: DateTime.now(),
         photoDataOrUrl: source,
-        photoCaption: caption.trim().isEmpty ? null : caption.trim(),
+        photoCaption: cleanCaption.isEmpty ? null : cleanCaption,
         kind: ChatMessageKind.photo,
+        mediaType: mediaType,
+        thumbnailPath: thumbnailPath,
+        durationSeconds: durationSeconds,
+        replyToMessageId: replyTo?.id,
+        replyPreviewText: replyTo?.preview,
       ),
     );
+  }
+
+  /// Sohbetten bir mesajı siler (yanıt şeritleri güvenli kalır).
+  void deleteMessage(String messageId) {
+    final CoupleState next = state.couple.deleteMessage(messageId);
+    if (identical(next, state.couple)) return;
+    state = state.withCouple(next);
+    _persist();
+  }
+
+  /// Aktif partner sohbeti okudu → karşı tarafın mesajlarına ✓✓.
+  void markConversationRead({String? readerId}) {
+    final String reader = readerId ?? state.activePartnerId;
+    final CoupleState next = state.couple.markMessagesRead(readerId: reader);
+    if (identical(next, state.couple)) return;
+    state = state.withCouple(next);
+    _persist();
+  }
+
+  /// Supabase Realtime'dan gelen mesajı yerel duruma işler (id ile dedupe).
+  /// Yeni mesaj eklendiyse `true` döner.
+  bool receiveRemoteMessage(ChatMessage message) {
+    if (state.couple.messageById(message.id) != null) return false;
+    state = state.withCouple(state.couple.addMessage(message));
+    _persist();
+    return true;
+  }
+
+  /// Karşı telefondan gelen tam durumu uygular (çift yönlü bulut senkronu).
+  void applyRemoteState(GameState remote) {
+    state = remote;
+    _persist();
+  }
+
+  /// Mesajı beğeni durumunu değiştirmeden yerinde günceller (okundu vb.).
+  void patchMessage(ChatMessage message) {
+    final ChatMessage? current = state.couple.messageById(message.id);
+    if (current == null || current == message) return;
+    state = state.withCouple(state.couple.upsertMessage(message));
+    _persist();
   }
 
   /// Tamamlanan görevi sohbette paylaşır (rozetli balon).
@@ -700,7 +771,18 @@ final class GameController extends Notifier<GameState> {
   }
 
   void _persist() {
-    unawaited(ref.read(gameStoreProvider).save(state));
+    final GameStore store = ref.read(gameStoreProvider);
+    final GameState snapshot = state;
+    // Web'de localStorage kotası dolsa bile uygulama çalışmaya devam eder.
+    unawaited(_saveQuietly(store, snapshot));
+  }
+
+  Future<void> _saveQuietly(GameStore store, GameState snapshot) async {
+    try {
+      await store.save(snapshot);
+    } catch (_) {
+      // Disk / kota hataları kullanıcı akışını kesmez.
+    }
   }
 }
 

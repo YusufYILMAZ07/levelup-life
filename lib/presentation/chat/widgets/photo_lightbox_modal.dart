@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../application/game_controller.dart';
+import '../../../core/platform/local_media.dart';
 import '../../../core/theme/theme.dart';
 import '../../../core/utils/format_x.dart';
 import '../../../domain/entities/entities.dart';
+import '../../widgets/partner_avatar.dart';
 import 'couple_photo.dart';
 
-/// Fotoğrafı tam ekran (lightbox) açar; kalp ile beğeni anında kaydedilir.
+/// Fotoğrafı / videoyu tam ekran (lightbox) açar.
+///
+/// * Fotoğraf → [InteractiveViewer] ile iki parmakla yakınlaştırma
+/// * Video → tam ekran oynatıcı + ilerleme çubuğu
+/// * Kalp ile beğeni anında kaydedilir.
 Future<void> showPhotoLightbox(BuildContext context, ChatMessage message) {
   return showDialog<void>(
     context: context,
@@ -17,7 +24,7 @@ Future<void> showPhotoLightbox(BuildContext context, ChatMessage message) {
   );
 }
 
-/// Anı albümü: sohbetteki tüm fotoğraflar ızgarada, dokununca lightbox.
+/// Anı albümü: Tümü / Fotoğraflar / Videolar / Plan Kanıtları.
 Future<void> showMemoryAlbum(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
@@ -36,33 +43,49 @@ class _PhotoLightbox extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final CoupleState couple = ref.watch(coupleStateProvider);
-    ChatMessage? message;
-    for (final ChatMessage item in couple.messages) {
-      if (item.id == messageId) message = item;
-    }
-    if (message == null) return const SizedBox.shrink();
-
-    final ChatMessage current = message;
+    final ChatMessage? found = couple.messageById(messageId);
+    if (found == null) return const SizedBox.shrink();
+    final ChatMessage current = found;
     final Color accent = CouplePalette.colorOf(current.senderId);
+    final bool isVideo = current.hasVideo;
+
     return Dialog(
       backgroundColor: AppColors.surface,
       insetPadding: const EdgeInsets.all(AppSpacing.lg),
       shape: const RoundedRectangleBorder(borderRadius: AppRadii.lgAll),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
+        constraints: const BoxConstraints(maxWidth: 560),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             Stack(
               children: <Widget>[
-                CouplePhoto(
-                  source: current.photoDataOrUrl ?? '',
-                  height: 300,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(AppRadii.lg),
+                if (isVideo)
+                  _FullscreenVideoPlayer(
+                    message: current,
+                    height: 320,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(AppRadii.lg),
+                    ),
+                  )
+                else
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(AppRadii.lg),
+                    ),
+                    child: InteractiveViewer(
+                      key: const Key('lightbox-zoom'),
+                      minScale: 1,
+                      maxScale: 4,
+                      clipBehavior: Clip.hardEdge,
+                      child: CouplePhoto(
+                        source: current.photoDataOrUrl ?? '',
+                        height: 320,
+                        borderRadius: BorderRadius.zero,
+                      ),
+                    ),
                   ),
-                ),
                 Positioned(
                   right: AppSpacing.sm,
                   top: AppSpacing.sm,
@@ -78,6 +101,29 @@ class _PhotoLightbox extends ConsumerWidget {
                     ),
                   ),
                 ),
+                if (current.isProof)
+                  Positioned(
+                    left: AppSpacing.sm,
+                    top: AppSpacing.sm,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.sm,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.shadow.withValues(alpha: 0.35),
+                        borderRadius: AppRadii.pillAll,
+                      ),
+                      child: Text(
+                        '📅 Plan Kanıtı',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textOnAccent,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
             Padding(
@@ -87,11 +133,8 @@ class _PhotoLightbox extends ConsumerWidget {
                 children: <Widget>[
                   Row(
                     children: <Widget>[
-                      Text(
-                        CouplePalette.emojiOf(current.senderId),
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
+                      PartnerAvatar(partnerId: current.senderId, size: 28),
+                      const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(
                           '${CouplePalette.nameOf(current.senderId)} · '
@@ -127,6 +170,16 @@ class _PhotoLightbox extends ConsumerWidget {
                       ),
                     ),
                   ],
+                  if (!isVideo) ...<Widget>[
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'İki parmakla yakınlaştırabilirsin 🔍',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textTertiary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -137,11 +190,12 @@ class _PhotoLightbox extends ConsumerWidget {
   }
 }
 
-/// Anı albümü filtreleri.
+/// Anı albümü filtreleri (anahtar adları geriye dönük uyumludur).
 enum _AlbumFilter {
-  all('Tümü', '📸'),
-  proofs('Plan & Görev Kanıtları', '📅'),
-  memories('Çift Anılarımız', '💑');
+  all('Tümü', '✨'),
+  memories('Fotoğraflar', '📸'),
+  videos('Videolar', '🎥'),
+  proofs('Plan Kanıtları', '📅');
 
   const _AlbumFilter(this.label, this.emoji);
 
@@ -150,8 +204,9 @@ enum _AlbumFilter {
 
   bool matches(ChatMessage message) => switch (this) {
     _AlbumFilter.all => true,
-    _AlbumFilter.proofs => message.kind == ChatMessageKind.proof,
-    _AlbumFilter.memories => message.kind != ChatMessageKind.proof,
+    _AlbumFilter.memories => !message.isProof && !message.hasVideo,
+    _AlbumFilter.videos => message.hasVideo,
+    _AlbumFilter.proofs => message.isProof,
   };
 }
 
@@ -219,14 +274,19 @@ class _MemoryAlbumSheetState extends ConsumerState<_MemoryAlbumSheet> {
             const SizedBox(height: AppSpacing.lg),
             if (photos.isEmpty)
               Text(
-                _filter == _AlbumFilter.proofs
-                    ? 'Henüz kanıt yok. Haftalık plandan ya da sohbetten '
-                          '"📅 Kanıt" gönder.'
-                    : _filter == _AlbumFilter.memories
-                    ? 'Henüz çift anısı yok. Sohbetten "📸 Anı" ile ilk '
-                          'kareyi ekle.'
-                    : 'Henüz fotoğraf yok. Sohbetten "📸 Anı" ile ilk anıyı '
-                          'ekle.',
+                switch (_filter) {
+                  _AlbumFilter.proofs =>
+                    'Henüz kanıt yok. Haftalık plandan ya da sohbetten '
+                        '"📅 Kanıt" gönder.',
+                  _AlbumFilter.videos =>
+                    'Henüz video yok. Sohbetten "🎥 Video" ile ilk klibi '
+                        'paylaş.',
+                  _AlbumFilter.memories =>
+                    'Henüz çekilmiş fotoğraf yok. Kameradan ilk kareyi '
+                        'gönder.',
+                  _AlbumFilter.all =>
+                    'Henüz anı yok. Sohbetten kamerayla ilk kareyi yakala.',
+                },
                 style: AppTypography.bodySmall.copyWith(
                   color: AppColors.textSecondary,
                 ),
@@ -247,49 +307,48 @@ class _MemoryAlbumSheetState extends ConsumerState<_MemoryAlbumSheet> {
                     return GestureDetector(
                       key: Key('album-${message.id}'),
                       onTap: () => showPhotoLightbox(context, message),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: <Widget>[
-                          CouplePhoto(
-                            source: message.photoDataOrUrl ?? '',
-                            height: 120,
-                          ),
-                          if (message.isLiked)
-                            const Positioned(
-                              right: AppSpacing.xs,
-                              top: AppSpacing.xs,
-                              child: Icon(
-                                Icons.favorite_rounded,
-                                color: AppColors.textOnAccent,
-                                size: 16,
+                      child: ClipRRect(
+                        borderRadius: AppRadii.mdAll,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: <Widget>[
+                            if (message.hasVideo)
+                              const _VideoThumb()
+                            else
+                              CouplePhoto(
+                                source: message.photoDataOrUrl ?? '',
+                                height: 120,
                               ),
-                            ),
-                          if (message.kind == ChatMessageKind.proof)
-                            Positioned(
-                              left: AppSpacing.xs,
-                              bottom: AppSpacing.xs,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.shadow.withValues(
-                                    alpha: 0.35,
-                                  ),
-                                  borderRadius: AppRadii.pillAll,
-                                ),
-                                child: Text(
-                                  '📅 Kanıt',
-                                  style: AppTypography.caption.copyWith(
-                                    color: AppColors.textOnAccent,
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                            if (message.isLiked)
+                              const Positioned(
+                                right: AppSpacing.xs,
+                                top: AppSpacing.xs,
+                                child: Icon(
+                                  Icons.favorite_rounded,
+                                  color: AppColors.textOnAccent,
+                                  size: 16,
                                 ),
                               ),
-                            ),
-                        ],
+                            if (message.hasVideo)
+                              Positioned(
+                                left: AppSpacing.xs,
+                                bottom: AppSpacing.xs,
+                                child: _AlbumBadge(
+                                  text: '🎥 Video',
+                                  color: AppColors.statProductivity,
+                                ),
+                              )
+                            else if (message.isProof)
+                              Positioned(
+                                left: AppSpacing.xs,
+                                bottom: AppSpacing.xs,
+                                child: _AlbumBadge(
+                                  text: '📅 Kanıt',
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -361,6 +420,282 @@ class _AlbumFilterChip extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AlbumBadge extends StatelessWidget {
+  const _AlbumBadge({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.shadow.withValues(alpha: 0.4),
+        borderRadius: AppRadii.pillAll,
+        border: Border.all(color: color.withValues(alpha: 0.6)),
+      ),
+      child: Text(
+        text,
+        style: AppTypography.caption.copyWith(
+          color: AppColors.textOnAccent,
+          fontSize: 8,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoThumb extends StatelessWidget {
+  const _VideoThumb();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[Color(0xFF1E293B), Color(0xFF64748B)],
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.play_circle_fill_rounded,
+          color: AppColors.textOnAccent,
+          size: 34,
+        ),
+      ),
+    );
+  }
+}
+
+/// Lightbox içindeki tam ekran video oynatıcı (oynat/duraklat + ilerleme).
+class _FullscreenVideoPlayer extends StatefulWidget {
+  const _FullscreenVideoPlayer({
+    required this.message,
+    required this.height,
+    required this.borderRadius,
+  });
+
+  final ChatMessage message;
+  final double height;
+  final BorderRadius borderRadius;
+
+  @override
+  State<_FullscreenVideoPlayer> createState() => _FullscreenVideoPlayerState();
+}
+
+class _FullscreenVideoPlayerState extends State<_FullscreenVideoPlayer> {
+  VideoPlayerController? _controller;
+  bool _loading = true;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final String source = widget.message.mediaPathOrUrl ?? '';
+    try {
+      final VideoPlayerController controller = isLocalMediaPath(source)
+          ? createLocalVideoController(source)
+          : VideoPlayerController.networkUrl(Uri.parse(source));
+      await controller.initialize();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _controller = controller;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggle() async {
+    final VideoPlayerController? controller = _controller;
+    if (controller == null) return;
+    if (controller.value.isPlaying) {
+      await controller.pause();
+    } else {
+      if (controller.value.position >= controller.value.duration) {
+        await controller.seekTo(Duration.zero);
+      }
+      await controller.play();
+    }
+  }
+
+  String _format(Duration duration) {
+    final int minutes = duration.inMinutes;
+    final int seconds = duration.inSeconds % 60;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: widget.borderRadius,
+      child: SizedBox(
+        height: widget.height,
+        width: double.infinity,
+        child: ColoredBox(
+          color: AppColors.shadow,
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              if (_failed)
+                Center(
+                  child: Text(
+                    'Video oynatılamadı 🎥',
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textOnAccent,
+                    ),
+                  ),
+                )
+              else if (_loading)
+                const Center(
+                  child: CircularProgressIndicator(
+                    color: AppColors.textOnAccent,
+                    strokeWidth: 2.4,
+                  ),
+                )
+              else if (_controller != null)
+                ValueListenableBuilder<VideoPlayerValue>(
+                  valueListenable: _controller!,
+                  builder:
+                      (
+                        BuildContext context,
+                        VideoPlayerValue value,
+                        Widget? child,
+                      ) {
+                        final int totalMs = value.duration.inMilliseconds;
+                        final int positionMs = value.position.inMilliseconds
+                            .clamp(0, totalMs == 0 ? 1 : totalMs);
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: <Widget>[
+                            FittedBox(
+                              fit: BoxFit.contain,
+                              child: SizedBox(
+                                width: value.size.width == 0
+                                    ? 320
+                                    : value.size.width,
+                                height: value.size.height == 0
+                                    ? 180
+                                    : value.size.height,
+                                child: VideoPlayer(_controller!),
+                              ),
+                            ),
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.xs,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: <Color>[
+                                      Colors.transparent,
+                                      AppColors.shadow.withValues(alpha: 0.65),
+                                    ],
+                                  ),
+                                ),
+                                child: Row(
+                                  children: <Widget>[
+                                    IconButton(
+                                      key: const Key('lightbox-video-play'),
+                                      onPressed: _toggle,
+                                      icon: Icon(
+                                        value.isPlaying
+                                            ? Icons.pause_rounded
+                                            : Icons.play_arrow_rounded,
+                                        color: AppColors.textOnAccent,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          trackHeight: 2,
+                                          thumbShape:
+                                              const RoundSliderThumbShape(
+                                                enabledThumbRadius: 5,
+                                              ),
+                                          overlayShape:
+                                              const RoundSliderOverlayShape(
+                                                overlayRadius: 12,
+                                              ),
+                                          activeTrackColor: CouplePalette.ceyda,
+                                          inactiveTrackColor: AppColors
+                                              .textOnAccent
+                                              .withValues(alpha: 0.35),
+                                          thumbColor: AppColors.textOnAccent,
+                                        ),
+                                        child: Slider(
+                                          key: const Key(
+                                            'lightbox-video-slider',
+                                          ),
+                                          value: positionMs.toDouble(),
+                                          max: totalMs == 0
+                                              ? 1
+                                              : totalMs.toDouble(),
+                                          onChanged: totalMs == 0
+                                              ? null
+                                              : (double next) =>
+                                                    _controller!.seekTo(
+                                                      Duration(
+                                                        milliseconds: next
+                                                            .round(),
+                                                      ),
+                                                    ),
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      '${_format(value.position)} / '
+                                      '${_format(value.duration)}',
+                                      style: AppTypography.caption.copyWith(
+                                        color: AppColors.textOnAccent,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(width: AppSpacing.xs),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                ),
             ],
           ),
         ),
