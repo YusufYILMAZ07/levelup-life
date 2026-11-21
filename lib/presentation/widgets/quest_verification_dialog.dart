@@ -151,6 +151,7 @@ class _QuestDialog extends StatelessWidget {
     );
   }
 }
+
 class _NoteDialog extends StatefulWidget {
   const _NoteDialog({required this.quest, required this.rule});
 
@@ -551,4 +552,3 @@ class _TimerDialogState extends State<_TimerDialog> {
     );
   }
 }
-

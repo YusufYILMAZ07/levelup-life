@@ -12,11 +12,7 @@ import '../widgets/step_title.dart';
 /// Seçimler anında arketip önerisini günceller; kullanıcı hangi sınıfa doğru
 /// evrildiğini burada görür (şeffaflık = güven).
 class StepGoals extends StatelessWidget {
-  const StepGoals({
-    required this.setup,
-    required this.onToggle,
-    super.key,
-  });
+  const StepGoals({required this.setup, required this.onToggle, super.key});
 
   final UserSetup setup;
   final ValueChanged<GoalType> onToggle;
@@ -24,6 +20,9 @@ class StepGoals extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.xxl,
         AppSpacing.sm,
@@ -104,8 +103,9 @@ class StepGoals extends StatelessWidget {
                     const SizedBox(height: AppSpacing.xxs),
                     Text(
                       setup.archetype.tagline,
-                      style: AppTypography.bodySmall
-                          .copyWith(color: AppColors.textSecondary),
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),

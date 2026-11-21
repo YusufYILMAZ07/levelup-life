@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 /// bu stiller `tabularFigures` içerir, böylece animasyon sırasında rakamlar
 /// zıplamaz — Apple Fitness hissi buradan gelir.
 abstract final class AppTypography {
-  static const List<FontFeature> _tabular = <FontFeature>[FontFeature.tabularFigures()];
+  static const List<FontFeature> _tabular = <FontFeature>[
+    FontFeature.tabularFigures(),
+  ];
 
   /// Onboarding / level-up kahraman başlığı.
   static const TextStyle displayHero = TextStyle(

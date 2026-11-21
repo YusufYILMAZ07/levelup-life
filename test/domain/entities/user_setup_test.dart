@@ -85,27 +85,25 @@ void main() {
         universityStudent.copyWith(goals: const <GoalType>{}).isComplete,
         isFalse,
       );
-      expect(
-        universityStudent.copyWith(studyField: '').hasDetails,
-        isFalse,
-      );
+      expect(universityStudent.copyWith(studyField: '').hasDetails, isFalse);
     });
 
     test('startingRadar birincil hedefi daha yüksek gösterir', () {
       final Map<StatKey, double> radar = universityStudent.startingRadar;
       expect(radar[StatKey.strength]!, greaterThan(radar[StatKey.vitality]!));
-      expect(radar[StatKey.productivity]!, greaterThan(radar[StatKey.vitality]!));
+      expect(
+        radar[StatKey.productivity]!,
+        greaterThan(radar[StatKey.vitality]!),
+      );
       expect(radar[StatKey.intelligence]!, greaterThan(0));
     });
 
     test('toggleGoal seçimi ekler ve kaldırır, orijinali bozmaz', () {
-      final UserSetup added =
-          universityStudent.toggleGoal(GoalType.reading);
+      final UserSetup added = universityStudent.toggleGoal(GoalType.reading);
       expect(added.goals, contains(GoalType.reading));
       expect(universityStudent.goals, isNot(contains(GoalType.reading)));
 
-      final UserSetup removed =
-          universityStudent.toggleGoal(GoalType.fitness);
+      final UserSetup removed = universityStudent.toggleGoal(GoalType.fitness);
       expect(removed.goals, isNot(contains(GoalType.fitness)));
     });
   });
@@ -137,16 +135,16 @@ void main() {
     });
 
     test('boş isim Gezgin olarak kaydedilir', () {
-      final UserProfile profile =
-          universityStudent.copyWith(displayName: '   ').toProfile();
+      final UserProfile profile = universityStudent
+          .copyWith(displayName: '   ')
+          .toProfile();
       expect(profile.displayName, 'Gezgin');
     });
   });
 
   group('serileştirme', () {
     test('JSON round-trip eşitlik korur', () {
-      final UserSetup restored =
-          UserSetup.fromJson(universityStudent.toJson());
+      final UserSetup restored = UserSetup.fromJson(universityStudent.toJson());
       expect(restored, universityStudent);
     });
 

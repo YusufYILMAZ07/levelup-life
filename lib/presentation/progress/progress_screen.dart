@@ -52,8 +52,9 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
       0,
       (int sum, DailyXp point) => sum + point.xp,
     );
-    final int rangeActiveDays =
-        series.where((DailyXp point) => point.isActive).length;
+    final int rangeActiveDays = series
+        .where((DailyXp point) => point.isActive)
+        .length;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -67,6 +68,9 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
                   maxWidth: AppConstants.maxContentWidth,
                 ),
                 child: ListView(
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.xxl,
                     AppSpacing.lg,
@@ -108,7 +112,9 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
                         dense: true,
                       ),
                     ),
-                    SoftCard(child: StreakCalendar(log: log, now: now)),
+                    SoftCard(
+                      child: StreakCalendar(log: log, now: now),
+                    ),
                     const SizedBox(height: AppSpacing.lg),
                     Center(
                       child: Text(

@@ -21,10 +21,10 @@ class StepSummary extends StatelessWidget {
   final ValueChanged<DailyTempo> onTempoChanged;
 
   IconData _tempoIcon(DailyTempo tempo) => switch (tempo) {
-        DailyTempo.relaxed => Icons.spa_rounded,
-        DailyTempo.balanced => Icons.balance_rounded,
-        DailyTempo.hardcore => Icons.local_fire_department_rounded,
-      };
+    DailyTempo.relaxed => Icons.spa_rounded,
+    DailyTempo.balanced => Icons.balance_rounded,
+    DailyTempo.hardcore => Icons.local_fire_department_rounded,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +32,9 @@ class StepSummary extends StatelessWidget {
     final Archetype archetype = setup.archetype;
 
     return ListView(
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.xxl,
         AppSpacing.sm,
@@ -93,8 +96,9 @@ class StepSummary extends StatelessWidget {
                           setup.trackLabel,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: AppTypography.bodySmall
-                              .copyWith(color: AppColors.textTertiary),
+                          style: AppTypography.bodySmall.copyWith(
+                            color: AppColors.textTertiary,
+                          ),
                         ),
                       ],
                     ),
@@ -131,8 +135,9 @@ class StepSummary extends StatelessWidget {
                         const SizedBox(height: AppSpacing.xxs),
                         Text(
                           archetype.tagline,
-                          style: AppTypography.bodySmall
-                              .copyWith(color: AppColors.textSecondary),
+                          style: AppTypography.bodySmall.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
                         ),
                       ],
                     ),
@@ -141,17 +146,15 @@ class StepSummary extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.lg),
               Center(
-                child: StatRadarChart(
-                  values: setup.startingRadar,
-                  size: 236,
-                ),
+                child: StatRadarChart(values: setup.startingRadar, size: 236),
               ),
               const SizedBox(height: AppSpacing.sm),
               Center(
                 child: Text(
                   'Başlangıç eğilimin (hedef ağırlıkları)',
-                  style: AppTypography.caption
-                      .copyWith(color: AppColors.textTertiary),
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textTertiary,
+                  ),
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),

@@ -30,16 +30,19 @@ class StepIdentity extends StatelessWidget {
   ];
 
   static String titleFor(LifeRole role) => switch (role) {
-        LifeRole.student => 'Üniversite Öğrencisiyim',
-        LifeRole.highSchool => 'Lise Öğrencisiyim',
-        LifeRole.employee => 'Çalışıyorum / Profesyonelim',
-        LifeRole.examPrep => 'Sınavlara Hazırlanıyorum',
-        _ => role.label,
-      };
+    LifeRole.student => 'Üniversite Öğrencisiyim',
+    LifeRole.highSchool => 'Lise Öğrencisiyim',
+    LifeRole.employee => 'Çalışıyorum / Profesyonelim',
+    LifeRole.examPrep => 'Sınavlara Hazırlanıyorum',
+    _ => role.label,
+  };
 
   @override
   Widget build(BuildContext context) {
     return ListView(
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.xxl,
         AppSpacing.sm,

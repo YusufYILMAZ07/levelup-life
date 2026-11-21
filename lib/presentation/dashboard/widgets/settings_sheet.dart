@@ -11,9 +11,11 @@ import '../../../services/app_settings.dart';
 import '../../../services/cloud_sync_coordinator.dart';
 import '../../../services/media_service.dart';
 import '../../../services/notification_service.dart';
+import '../../../services/push_service.dart';
 import '../../../services/supabase_sync_service.dart';
 import '../../birthday/birthday_modal.dart';
 import '../../onboarding/widgets/grade_selector.dart';
+import '../../widgets/in_app_notification_banner.dart';
 import '../../widgets/partner_avatar.dart';
 import '../../widgets/section_header.dart';
 
@@ -95,6 +97,9 @@ class SettingsSheet extends ConsumerWidget {
     return SafeArea(
       top: false,
       child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.xxl,
           AppSpacing.sm,
@@ -141,7 +146,10 @@ class SettingsSheet extends ConsumerWidget {
             const SizedBox(height: AppSpacing.xl),
             const Divider(),
             const SizedBox(height: AppSpacing.lg),
-            // __REST__
+            const _DeviceIdentitySettings(),
+            const SizedBox(height: AppSpacing.xl),
+            const Divider(),
+            const SizedBox(height: AppSpacing.lg),
             const SectionHeader(
               title: 'Enerji modu',
               subtitle: 'Bugünkü kapasitene göre görevler uyarlanır.',
@@ -375,6 +383,133 @@ class _EnergyOption extends StatelessWidget {
   }
 }
 
+class _DeviceIdentitySettings extends ConsumerWidget {
+  const _DeviceIdentitySettings();
+
+  void _choose(WidgetRef ref, String partnerId) {
+    ref.read(appSettingsProvider.notifier).configureDeviceOwner(partnerId);
+    ref
+        .read(gameProvider.notifier)
+        .enforceDeviceOwner(ref.read(appSettingsProvider));
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    final String owner = settings.deviceRole;
+    final String partner = CouplePartner.other(owner);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SectionHeader(
+          title: '📱 Bu Telefon Kimin?',
+          subtitle:
+              'Her iPhone kendi sahibiyle açılır; yanlış isimle mesaj veya '
+              'puan girilmez.',
+        ),
+        if (!settings.deviceOwnerConfigured)
+          Container(
+            margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.07),
+              borderRadius: AppRadii.mdAll,
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.20),
+              ),
+            ),
+            child: Text(
+              'İlk kurulum: Bu telefonu bir kez seç. Sonra istediğin zaman '
+              'aşağıdan değiştirebilirsin 💞',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+                height: 1.4,
+              ),
+            ),
+          ),
+        Row(
+          children: <Widget>[
+            for (final String id in CouplePartner.ids) ...<Widget>[
+              Expanded(
+                child: _RoleChip(
+                  key: Key('device-owner-$id'),
+                  partnerId: id,
+                  selected: owner == id,
+                  onTap: () => _choose(ref, id),
+                ),
+              ),
+              if (id != CouplePartner.ids.last)
+                const SizedBox(width: AppSpacing.sm),
+            ],
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Container(
+          key: const Key('device-identity-pill'),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceMuted,
+            borderRadius: AppRadii.pillAll,
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: <Widget>[
+              Text(
+                CouplePalette.emojiOf(owner),
+                style: const TextStyle(fontSize: 14),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(
+                child: Text(
+                  '${CouplePalette.nameOf(owner)} · '
+                  '${CouplePalette.nameOf(partner)} ile Bağlı 🟢',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SwitchListTile.adaptive(
+          key: const Key('device-test-mode'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          secondary: const Icon(
+            Icons.science_rounded,
+            size: 20,
+            color: AppColors.textSecondary,
+          ),
+          title: Text(
+            'Tek Cihaz Test Modu (Profil Değiştirmeyi Aç)',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            settings.lockToDeviceOwner
+                ? 'Kapalı · bu telefon $owner profiline kilitli'
+                : 'Açık · üst bardan Yusuf ⇄ Ceyda geçişi yapılabilir',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          value: !settings.lockToDeviceOwner,
+          onChanged: (bool enabled) => ref
+              .read(appSettingsProvider.notifier)
+              .setLockToDeviceOwner(!enabled),
+        ),
+      ],
+    );
+  }
+}
+
 class _ProfilePhotoSettings extends ConsumerWidget {
   const _ProfilePhotoSettings();
 
@@ -511,6 +646,14 @@ class _NotificationSettings extends ConsumerWidget {
   const _NotificationSettings();
 
   Future<void> _sendTest(BuildContext context) async {
+    // Her platformda anında görünen iOS-tarzı floating banner.
+    InAppNotificationCenter.instance.show(
+      title: 'Ceyda 🌸',
+      body: 'Sana örnek bir mesaj gönderdi · bildirimler hazır 💞',
+      emoji: '🌸',
+      kind: InAppNotificationKind.test,
+      payload: 'test',
+    );
     final bool ok = await NotificationService.instance.showTestNotification();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context)
@@ -519,8 +662,9 @@ class _NotificationSettings extends ConsumerWidget {
         SnackBar(
           content: Text(
             ok
-                ? '🔔 Test bildirimi gönderildi'
-                : 'Bu cihazda bildirim yok (Web önizleme / izin kapalı).',
+                ? '🔔 Floating banner + OS bildirimi gönderildi'
+                : 'Floating banner hazır · OS bildirimi bu cihazda kapalı '
+                      '(Web / izin yok).',
           ),
           duration: const Duration(seconds: 3),
         ),
@@ -569,7 +713,138 @@ class _NotificationSettings extends ConsumerWidget {
           key: const Key('notif-test'),
           onPressed: () => _sendTest(context),
           icon: const Icon(Icons.notifications_active_rounded, size: 18),
-          label: const Text('🔔 Test Bildirimi Gönder'),
+          label: const Text('🔔 Örnek Partner Mesajı Bildirimi Test Et'),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        const _PushSettings(),
+      ],
+    );
+  }
+}
+
+class _PushSettings extends ConsumerStatefulWidget {
+  const _PushSettings();
+
+  @override
+  ConsumerState<_PushSettings> createState() => _PushSettingsState();
+}
+
+class _PushSettingsState extends ConsumerState<_PushSettings> {
+  late final TextEditingController _appId;
+  late final TextEditingController _restKey;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final AppSettings settings = ref.read(appSettingsProvider);
+    _appId = TextEditingController(text: settings.oneSignalAppId);
+    _restKey = TextEditingController(text: settings.oneSignalRestApiKey);
+  }
+
+  @override
+  void dispose() {
+    _appId.dispose();
+    _restKey.dispose();
+    super.dispose();
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 4)),
+      );
+  }
+
+  Future<void> _save() async {
+    setState(() => _busy = true);
+    ref
+        .read(appSettingsProvider.notifier)
+        .savePushConfig(appId: _appId.text, restApiKey: _restKey.text);
+    final bool ok = await PushService.instance.initialize(
+      ref.read(appSettingsProvider),
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _snack(
+      ok
+          ? 'OneSignal hazır · kapalıyken de bildirimler açık 🔔'
+          : 'Ayar kaydedildi · OneSignal başlatılamadı (Web/test olabilir).',
+    );
+  }
+
+  Future<void> _test() async {
+    setState(() => _busy = true);
+    final PushResult result = await PushService.instance.sendTest(
+      ref.read(appSettingsProvider),
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _snack(result.message);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        SectionHeader(
+          title: '🔔 Kapalıyken de Bildirim (OneSignal Push)',
+          subtitle:
+              'Uygulama kapalıyken bile partnerine ulaş. OneSignal panelindeki '
+              'App ID ve REST API anahtarını gir.',
+          trailing: InfoPill(
+            label: settings.isPushConfigured ? 'Hazır' : 'Kurulmadı',
+            color: settings.isPushConfigured
+                ? AppColors.success
+                : AppColors.textTertiary,
+            dense: true,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _CloudField(
+          key: const Key('onesignal-app-id'),
+          controller: _appId,
+          label: 'OneSignal App ID',
+          hint: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+        ),
+        _CloudField(
+          key: const Key('onesignal-rest-key'),
+          controller: _restKey,
+          label: 'REST API Key',
+          hint: 'os_v2_…',
+          obscure: true,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: <Widget>[
+            FilledButton.icon(
+              key: const Key('onesignal-save'),
+              onPressed: _busy ? null : _save,
+              icon: const Icon(Icons.lock_rounded, size: 16),
+              label: Text(_busy ? 'Kaydediliyor…' : 'Push’u Etkinleştir'),
+            ),
+            OutlinedButton.icon(
+              key: const Key('onesignal-test'),
+              onPressed: _busy ? null : _test,
+              icon: const Icon(Icons.rocket_launch_rounded, size: 16),
+              label: const Text('🚀 OneSignal Push Testi Gönder'),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'iOS’ta gerçek teslimat için OneSignal paneline APNs anahtarını '
+          'eklemen gerekir. REST anahtarı yalnızca bu cihazda saklanır.',
+          style: AppTypography.caption.copyWith(
+            color: AppColors.textTertiary,
+            height: 1.4,
+          ),
         ),
       ],
     );
@@ -629,7 +904,7 @@ class _PrivacySettings extends ConsumerWidget {
           void save() {
             final String value = AppSettings.normalizePin(controller.text);
             if (value.length != 4) {
-              setState(() => error = '4 haneli bir PIN gir (ör. 1402)');
+              setState(() => error = '4 haneli bir PIN gir (ör. 3101)');
               return;
             }
             Navigator.of(dialogContext).pop(value);
@@ -652,13 +927,13 @@ class _PrivacySettings extends ConsumerWidget {
                     FilteringTextInputFormatter.digitsOnly,
                   ],
                   decoration: const InputDecoration(
-                    hintText: '4 hane · ör. 1402',
+                    hintText: '4 hane · ör. 3101',
                     counterText: '',
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
-                  'Varsayılan PIN Ceyda’nın doğum günü: 1402 🌸',
+                  'Varsayılan PIN yıldönümümüz: 3101 💍',
                   style: AppTypography.caption.copyWith(
                     color: AppColors.textTertiary,
                   ),
@@ -761,7 +1036,7 @@ class _PrivacySettings extends ConsumerWidget {
           ),
           subtitle: Text(
             settings.pinCode == AppSettings.defaultPin
-                ? 'Şu an varsayılan PIN · 1402'
+                ? 'Şu an varsayılan PIN · 3101'
                 : 'Şu an özel PIN · ••••',
             style: AppTypography.caption.copyWith(
               color: AppColors.textTertiary,

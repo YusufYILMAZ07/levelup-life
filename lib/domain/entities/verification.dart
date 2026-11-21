@@ -46,24 +46,21 @@ sealed class QuestVerification {
     required int minutes,
     bool requiresForeground = true,
     int minSessionMinutes = 5,
-  }) =>
-      TimerVerification(
-        minutes: minutes,
-        requiresForeground: requiresForeground,
-        minSessionMinutes: minSessionMinutes,
-      );
+  }) => TimerVerification(
+    minutes: minutes,
+    requiresForeground: requiresForeground,
+    minSessionMinutes: minSessionMinutes,
+  );
 
   factory QuestVerification.reflection({
     required String prompt,
     int minCharacters = 40,
-  }) =>
-      ReflectionVerification(prompt: prompt, minCharacters: minCharacters);
+  }) => ReflectionVerification(prompt: prompt, minCharacters: minCharacters);
 
   factory QuestVerification.stepGoal({
     required int targetSteps,
     String source = 'manual',
-  }) =>
-      StepGoalVerification(targetSteps: targetSteps, source: source);
+  }) => StepGoalVerification(targetSteps: targetSteps, source: source);
 
   factory QuestVerification.checklist({required List<String> items}) =>
       ChecklistVerification(items: items);
@@ -72,28 +69,35 @@ sealed class QuestVerification {
       ManualVerification(requiresNote: requiresNote);
 
   static QuestVerification fromJson(Map<String, dynamic> json) {
-    final VerificationType type =
-        VerificationType.fromCode(JsonX.asString(json['type']));
+    final VerificationType type = VerificationType.fromCode(
+      JsonX.asString(json['type']),
+    );
     return switch (type) {
       VerificationType.timer => TimerVerification(
-          minutes: JsonX.asInt(json['minutes'], fallback: 25),
-          requiresForeground: JsonX.asBool(json['requires_foreground'], fallback: true),
-          minSessionMinutes: JsonX.asInt(json['min_session_minutes'], fallback: 5),
+        minutes: JsonX.asInt(json['minutes'], fallback: 25),
+        requiresForeground: JsonX.asBool(
+          json['requires_foreground'],
+          fallback: true,
         ),
+        minSessionMinutes: JsonX.asInt(
+          json['min_session_minutes'],
+          fallback: 5,
+        ),
+      ),
       VerificationType.reflection => ReflectionVerification(
-          prompt: JsonX.asString(json['prompt']),
-          minCharacters: JsonX.asInt(json['min_characters'], fallback: 40),
-        ),
+        prompt: JsonX.asString(json['prompt']),
+        minCharacters: JsonX.asInt(json['min_characters'], fallback: 40),
+      ),
       VerificationType.stepGoal => StepGoalVerification(
-          targetSteps: JsonX.asInt(json['target_steps'], fallback: 1000),
-          source: JsonX.asString(json['source'], fallback: 'manual'),
-        ),
+        targetSteps: JsonX.asInt(json['target_steps'], fallback: 1000),
+        source: JsonX.asString(json['source'], fallback: 'manual'),
+      ),
       VerificationType.checklist => ChecklistVerification(
-          items: JsonX.asStringList(json['items']),
-        ),
+        items: JsonX.asStringList(json['items']),
+      ),
       VerificationType.manual => ManualVerification(
-          requiresNote: JsonX.asBool(json['requires_note']),
-        ),
+        requiresNote: JsonX.asBool(json['requires_note']),
+      ),
     };
   }
 }
@@ -123,11 +127,11 @@ final class TimerVerification extends QuestVerification {
 
   @override
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'type': type.code,
-        'minutes': minutes,
-        'requires_foreground': requiresForeground,
-        'min_session_minutes': minSessionMinutes,
-      };
+    'type': type.code,
+    'minutes': minutes,
+    'requires_foreground': requiresForeground,
+    'min_session_minutes': minSessionMinutes,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -137,7 +141,8 @@ final class TimerVerification extends QuestVerification {
       other.minSessionMinutes == minSessionMinutes;
 
   @override
-  int get hashCode => Object.hash(minutes, requiresForeground, minSessionMinutes);
+  int get hashCode =>
+      Object.hash(minutes, requiresForeground, minSessionMinutes);
 }
 
 /// Görev sonunda açılan "ne öğrendin?" modalı.
@@ -155,10 +160,10 @@ final class ReflectionVerification extends QuestVerification {
 
   @override
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'type': type.code,
-        'prompt': prompt,
-        'min_characters': minCharacters,
-      };
+    'type': type.code,
+    'prompt': prompt,
+    'min_characters': minCharacters,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -172,7 +177,10 @@ final class ReflectionVerification extends QuestVerification {
 
 /// Adım hedefi (HealthKit / Google Fit simülasyonu).
 final class StepGoalVerification extends QuestVerification {
-  const StepGoalVerification({required this.targetSteps, this.source = 'manual'});
+  const StepGoalVerification({
+    required this.targetSteps,
+    this.source = 'manual',
+  });
 
   final int targetSteps;
 
@@ -187,10 +195,10 @@ final class StepGoalVerification extends QuestVerification {
 
   @override
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'type': type.code,
-        'target_steps': targetSteps,
-        'source': source,
-      };
+    'type': type.code,
+    'target_steps': targetSteps,
+    'source': source,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -216,9 +224,9 @@ final class ChecklistVerification extends QuestVerification {
 
   @override
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'type': type.code,
-        'items': items,
-      };
+    'type': type.code,
+    'items': items,
+  };
 
   @override
   bool operator ==(Object other) {
@@ -249,9 +257,9 @@ final class ManualVerification extends QuestVerification {
 
   @override
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'type': type.code,
-        'requires_note': requiresNote,
-      };
+    'type': type.code,
+    'requires_note': requiresNote,
+  };
 
   @override
   bool operator ==(Object other) =>

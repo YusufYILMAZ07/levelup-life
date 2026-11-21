@@ -40,13 +40,13 @@ abstract final class AppShadows {
 
   /// Seçili kart için renkli çerçeve gölgesi.
   static List<BoxShadow> selected(Color color) => <BoxShadow>[
-        BoxShadow(
-          color: color.withValues(alpha: 0.22),
-          blurRadius: 22,
-          offset: const Offset(0, 8),
-          spreadRadius: -6,
-        ),
-      ];
+    BoxShadow(
+      color: color.withValues(alpha: 0.22),
+      blurRadius: 22,
+      offset: const Offset(0, 8),
+      spreadRadius: -6,
+    ),
+  ];
 
   /// Gradient buton / XP bar için parıltı.
   static List<BoxShadow> glow(
@@ -56,18 +56,22 @@ abstract final class AppShadows {
     Offset offset = const Offset(0, 8),
   }) {
     return <BoxShadow>[
-      BoxShadow(color: color.withValues(alpha: opacity), blurRadius: blur, offset: offset),
+      BoxShadow(
+        color: color.withValues(alpha: opacity),
+        blurRadius: blur,
+        offset: offset,
+      ),
     ];
   }
 
   /// Stat rengine göre kartın altına düşen yumuşak renkli gölge.
   static List<BoxShadow> tinted(Color color) => <BoxShadow>[
-        BoxShadow(
-          color: color.withValues(alpha: 0.16),
-          blurRadius: 26,
-          offset: const Offset(0, 12),
-          spreadRadius: -10,
-        ),
-        ...card,
-      ];
+    BoxShadow(
+      color: color.withValues(alpha: 0.16),
+      blurRadius: 26,
+      offset: const Offset(0, 12),
+      spreadRadius: -10,
+    ),
+    ...card,
+  ];
 }

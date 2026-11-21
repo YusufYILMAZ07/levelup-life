@@ -4,7 +4,8 @@
 /// streak yanlışlıkla sıfırlanmaz.
 abstract final class DateX {
   /// Saat bilgisini atıp yerel günün 00:00'ını döndürür.
-  static DateTime dateOnly(DateTime value) => DateTime(value.year, value.month, value.day);
+  static DateTime dateOnly(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
 
   /// Bugünün 00:00'ı (testlerde [now] enjekte edilebilir).
   static DateTime today([DateTime? now]) => dateOnly(now ?? DateTime.now());

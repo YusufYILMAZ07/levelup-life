@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../application/game_controller.dart';
@@ -26,6 +27,7 @@ class RewardCapsulesTab extends ConsumerWidget {
         .read(gameProvider.notifier)
         .openRewardCapsule(capsule.id);
     if (!opened) return;
+    HapticFeedback.mediumImpact();
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,

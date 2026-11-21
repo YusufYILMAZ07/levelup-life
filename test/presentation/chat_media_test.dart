@@ -31,6 +31,25 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('sohbetin üstünde eski mesaj yükleme düğmesi görünür', (
+    WidgetTester tester,
+  ) async {
+    await pump(
+      tester,
+      withMessages(<ChatMessage>[
+        ChatMessage(
+          id: 'only',
+          senderId: CouplePartner.ceydaId,
+          createdAt: DateTime.now().subtract(const Duration(minutes: 1)),
+          text: 'Merhaba',
+        ),
+      ]),
+    );
+
+    expect(find.byKey(const Key('load-older-messages')), findsOneWidget);
+    expect(find.text('⬆️ Daha Eski Mesajları Yükle'), findsOneWidget);
+  });
+
   testWidgets('uzun basıp yanıtla alıntılı mesaj gönderir', (
     WidgetTester tester,
   ) async {

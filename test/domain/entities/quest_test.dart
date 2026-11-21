@@ -108,7 +108,8 @@ void main() {
     test('requiresProof doğrulama tipine bağlı', () {
       expect(buildQuest().requiresProof, isTrue);
       expect(
-        buildQuest().copyWith(verification: QuestVerification.manual())
+        buildQuest()
+            .copyWith(verification: QuestVerification.manual())
             .requiresProof,
         isFalse,
       );
@@ -127,7 +128,10 @@ void main() {
       expect(started.isOpen, isTrue);
 
       final DateTime done = DateTime(2026, 11, 15, 11);
-      final Quest completed = started.complete(at: done, reflection: 'İyi gitti');
+      final Quest completed = started.complete(
+        at: done,
+        reflection: 'İyi gitti',
+      );
 
       expect(completed.isCompleted, isTrue);
       expect(completed.completedAt, done);

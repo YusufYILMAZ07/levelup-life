@@ -8,9 +8,11 @@ import UserNotifications
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // Yusuf & Ceyda: uygulama öndeyken de kilit ekranı bildirimi gösterilsin.
+    // Yusuf & Ceyda: uygulama öndeyken de banner + ses gösterilsin.
+    // `FlutterAppDelegate` UNUserNotificationCenterDelegate protokolünü uygular;
+    // opsiyonel cast kullanmak delegate'in nil kalmasına yol açabiliyordu.
     if #available(iOS 10.0, *) {
-      UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
+      UNUserNotificationCenter.current().delegate = self
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }

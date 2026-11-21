@@ -39,23 +39,28 @@ void main() {
     });
 
     test('tek odak statı ilgili sınıfı seçer', () {
-      expect(Archetype.recommend(<StatKey>{StatKey.intelligence}),
-          Archetype.scholar);
-      expect(Archetype.recommend(<StatKey>{StatKey.strength}),
-          Archetype.athlete);
-      expect(Archetype.recommend(<StatKey>{StatKey.vitality}),
-          Archetype.guardian);
-      expect(Archetype.recommend(<StatKey>{StatKey.productivity}),
-          Archetype.hustler);
-      expect(Archetype.recommend(<StatKey>{StatKey.willpower}),
-          Archetype.monk);
+      expect(
+        Archetype.recommend(<StatKey>{StatKey.intelligence}),
+        Archetype.scholar,
+      );
+      expect(
+        Archetype.recommend(<StatKey>{StatKey.strength}),
+        Archetype.athlete,
+      );
+      expect(
+        Archetype.recommend(<StatKey>{StatKey.vitality}),
+        Archetype.guardian,
+      );
+      expect(
+        Archetype.recommend(<StatKey>{StatKey.productivity}),
+        Archetype.hustler,
+      );
+      expect(Archetype.recommend(<StatKey>{StatKey.willpower}), Archetype.monk);
     });
 
     test('iki odak statı toplam bonusu en yüksek sınıfı seçer', () {
       expect(
-        Archetype.recommend(
-          <StatKey>{StatKey.intelligence, StatKey.willpower},
-        ),
+        Archetype.recommend(<StatKey>{StatKey.intelligence, StatKey.willpower}),
         Archetype.scholar,
       );
       expect(

@@ -67,7 +67,7 @@ final class LevelProgress {
   String toString() => isMaxLevel
       ? 'LevelProgress(max level $level, ${totalXp}XP)'
       : 'LevelProgress(Lv$level · $xpIntoLevel/$xpForNextLevel XP '
-          '($percent%) · $tierProgress kuşak)';
+            '($percent%) · $tierProgress kuşak)';
 }
 
 /// XP → seviye dönüşüm motoru.
@@ -128,7 +128,11 @@ abstract final class XpEngine {
   static List<int> _buildCumulativeXp() {
     final List<int> table = List<int>.filled(AppConstants.maxLevel, 0);
     int running = 0;
-    for (int level = AppConstants.minLevel; level < AppConstants.maxLevel; level++) {
+    for (
+      int level = AppConstants.minLevel;
+      level < AppConstants.maxLevel;
+      level++
+    ) {
       running += xpForLevel(level);
       table[level] = running; // index 0 = Lv2'ye ulaşmak için gereken XP
     }
@@ -182,7 +186,8 @@ abstract final class XpEngine {
   static int get maxTotalXp => _cumulativeXp[AppConstants.maxLevel - 1];
 
   /// Kullanıcının bir sonraki seviyeye ne kadar uzak olduğu.
-  static int xpToNextLevel(int totalXp) => progressForTotalXp(totalXp).xpRemaining;
+  static int xpToNextLevel(int totalXp) =>
+      progressForTotalXp(totalXp).xpRemaining;
 
   // ── Ödül hesaplama ───────────────────────────────────────────────────────
 

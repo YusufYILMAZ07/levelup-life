@@ -9,7 +9,13 @@ void main() {
   DateTime at(int weekday, int hour, [int minute = 0]) {
     final DateTime anchor = DateTime(2026, 11, 15);
     final int delta = weekday - anchor.weekday;
-    return DateTime(anchor.year, anchor.month, anchor.day + delta, hour, minute);
+    return DateTime(
+      anchor.year,
+      anchor.month,
+      anchor.day + delta,
+      hour,
+      minute,
+    );
   }
 
   ScheduleBlock block({
@@ -123,26 +129,29 @@ void main() {
       block(id: 'y-wed', weekday: DateTime.wednesday, startHour: 8, endHour: 9),
     ];
 
-    test('blocksForDay partneri ve günü filtreler, başlangıca göre sıralar', () {
-      final List<ScheduleBlock> yusuf = SchedulePlanner.blocksForDay(
-        week,
-        CouplePartner.yusufId,
-        DateTime.tuesday,
-      );
-      expect(yusuf.map((ScheduleBlock b) => b.id), <String>[
-        'y-early',
-        'y-late',
-      ]);
-      expect(
-        SchedulePlanner.blocksForDay(
+    test(
+      'blocksForDay partneri ve günü filtreler, başlangıca göre sıralar',
+      () {
+        final List<ScheduleBlock> yusuf = SchedulePlanner.blocksForDay(
           week,
-          CouplePartner.ceydaId,
+          CouplePartner.yusufId,
           DateTime.tuesday,
-        ),
-        hasLength(1),
-      );
-      expect(() => yusuf.add(block(id: 'x')), throwsUnsupportedError);
-    });
+        );
+        expect(yusuf.map((ScheduleBlock b) => b.id), <String>[
+          'y-early',
+          'y-late',
+        ]);
+        expect(
+          SchedulePlanner.blocksForDay(
+            week,
+            CouplePartner.ceydaId,
+            DateTime.tuesday,
+          ),
+          hasLength(1),
+        );
+        expect(() => yusuf.add(block(id: 'x')), throwsUnsupportedError);
+      },
+    );
 
     test('allBlocksForDay iki partneri birleştirir', () {
       final List<ScheduleBlock> tuesday = SchedulePlanner.allBlocksForDay(
@@ -217,7 +226,6 @@ void main() {
     });
   });
 
-
   group('SchedulePlanner · ortak boşluklar', () {
     test('hiç blok yoksa tüm gün tek penceredir', () {
       final List<FreeWindow> windows = SchedulePlanner.sharedFreeWindows(
@@ -265,9 +273,7 @@ void main() {
         ],
         DateTime.tuesday,
       );
-      expect(windows.map((FreeWindow w) => w.label), <String>[
-        '13:00 - 23:00',
-      ]);
+      expect(windows.map((FreeWindow w) => w.label), <String>['13:00 - 23:00']);
       expect(SchedulePlanner.minFreeWindowMinutes, 45);
     });
 
@@ -319,7 +325,6 @@ void main() {
     });
   });
 
-
   group('tohum plan', () {
     final List<ScheduleBlock> week = ScheduleSeed.week();
 
@@ -333,7 +338,10 @@ void main() {
         week.where((ScheduleBlock b) => b.partnerId == CouplePartner.ceydaId),
         isNotEmpty,
       );
-      expect(week.map((ScheduleBlock b) => b.id).toSet(), hasLength(week.length));
+      expect(
+        week.map((ScheduleBlock b) => b.id).toSet(),
+        hasLength(week.length),
+      );
       for (final ScheduleBlock item in week) {
         expect(CouplePartner.ids, contains(item.partnerId));
         expect(item.weekday, inInclusiveRange(1, 7));
@@ -500,5 +508,4 @@ void main() {
       expect(created.id, startsWith('plan-yusuf-7-0-1440-'));
     });
   });
-
 }

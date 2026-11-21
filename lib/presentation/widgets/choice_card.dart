@@ -59,7 +59,8 @@ class ChoiceCard extends StatelessWidget {
                   if (icon != null) ...<Widget>[
                     Medallion(
                       icon: icon!,
-                      gradient: gradient ??
+                      gradient:
+                          gradient ??
                           LinearGradient(
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
@@ -104,8 +105,9 @@ class ChoiceCard extends StatelessWidget {
                             subtitle!,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: AppTypography.bodySmall
-                                .copyWith(color: AppColors.textTertiary),
+                            style: AppTypography.bodySmall.copyWith(
+                              color: AppColors.textTertiary,
+                            ),
                           ),
                         ],
                       ],
@@ -206,8 +208,9 @@ class GoalTile extends StatelessWidget {
                     subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppTypography.caption
-                        .copyWith(color: AppColors.textTertiary),
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textTertiary,
+                    ),
                   ),
                 ],
               ),

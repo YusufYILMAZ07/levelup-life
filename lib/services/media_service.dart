@@ -49,10 +49,13 @@ final class MediaService {
 
   final ImagePicker _picker;
 
-  /// Web'de localStorage taşma riskine karşı güvenli üst sınır.
+  /// Web'de localStorage taşma riskine karşı güvenli üst sınır (fotoğraf).
   static const int maxInlineBytes = 6 * 1024 * 1024;
 
-  static const int maxVideoDurationSeconds = 60;
+  /// Hızlı yükleme ve düşük bellek kullanımı için video tavanı.
+  static const int maxVideoBytes = 20 * 1024 * 1024;
+
+  static const int maxVideoDurationSeconds = 45;
 
   /// Fotoğraf seç/çek. Kullanıcı vazgeçerse `null` döner.
   Future<PickedMedia?> pickImage({
@@ -63,9 +66,9 @@ final class MediaService {
     try {
       file = await _picker.pickImage(
         source: source,
-        maxWidth: forAvatar ? 900 : 1800,
-        maxHeight: forAvatar ? 900 : 1800,
-        imageQuality: forAvatar ? 88 : 82,
+        maxWidth: forAvatar ? 900 : 1440,
+        maxHeight: forAvatar ? 900 : 1440,
+        imageQuality: forAvatar ? 88 : 78,
         preferredCameraDevice: CameraDevice.rear,
       );
     } catch (_) {
@@ -112,10 +115,10 @@ final class MediaService {
     );
   }
 
-  /// Video seç/çek (en fazla 60 sn). Kullanıcı vazgeçerse `null` döner.
+  /// Video seç/çek (en fazla 45 sn / 20 MB). Kullanıcı vazgeçerse `null`.
   ///
   /// [includeBytes] yalnızca bulut yüklemesi yapılacaksa `true` verilir;
-  /// aksi hâlde 60 sn'lik bir video belleğe alınmaz.
+  /// aksi hâlde büyük bir video belleğe alınmaz, yalnızca boyutu doğrulanır.
   Future<PickedMedia?> pickVideo({
     ImageSource source = ImageSource.gallery,
     bool includeBytes = false,
@@ -134,6 +137,18 @@ final class MediaService {
     }
     if (file == null) return null;
 
+    final int fileLength;
+    try {
+      fileLength = await file.length();
+    } catch (_) {
+      throw const MediaPickException('Video boyutu okunamadı, tekrar dene.');
+    }
+    if (fileLength > maxVideoBytes) {
+      throw const MediaPickException(
+        'Video çok büyük (en fazla 20 MB). Daha kısa bir video seç.',
+      );
+    }
+
     Uint8List? bytes;
     if (kIsWeb || includeBytes) {
       try {
@@ -144,15 +159,15 @@ final class MediaService {
       if (bytes.isEmpty) {
         throw const MediaPickException('Video boş görünüyor.');
       }
+      if (bytes.length > maxVideoBytes) {
+        throw const MediaPickException(
+          'Video çok büyük (en fazla 20 MB). Daha kısa bir video seç.',
+        );
+      }
     }
 
     if (kIsWeb) {
       final Uint8List webBytes = bytes!;
-      if (webBytes.length > maxInlineBytes) {
-        throw const MediaPickException(
-          'Video çok büyük (en fazla 6 MB). Daha kısa bir video seç.',
-        );
-      }
       final String mime = _mimeOf(file, 'video/mp4');
       return PickedMedia(
         source: 'data:$mime;base64,${base64Encode(webBytes)}',

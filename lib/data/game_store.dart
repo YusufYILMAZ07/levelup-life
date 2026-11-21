@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,6 +17,9 @@ abstract interface class GameStore {
   Future<void> save(GameState state);
 
   Future<void> clear();
+
+  /// Bekleyen (debounce edilmiş) yazımı hemen tamamlar.
+  Future<void> flush();
 }
 
 /// Bellek içi store — testler ve `ProviderScope` override'ları için.
@@ -36,6 +40,9 @@ final class MemoryGameStore implements GameStore {
   Future<void> clear() async {
     _state = null;
   }
+
+  @override
+  Future<void> flush() async {}
 }
 
 /// `shared_preferences` tabanlı yerel store.
@@ -46,7 +53,13 @@ final class MemoryGameStore implements GameStore {
 final class LocalGameStore implements GameStore {
   LocalGameStore._(this._preferences);
 
+  static const Duration writeDebounce = Duration(milliseconds: 150);
+
   final SharedPreferences _preferences;
+
+  Timer? _writeTimer;
+  GameState? _latest;
+  Future<void> _writeChain = Future<void>.value();
 
   static Future<LocalGameStore> open() async {
     final SharedPreferences preferences = await SharedPreferences.getInstance();
@@ -63,12 +76,10 @@ final class LocalGameStore implements GameStore {
         return GameState.fromJson(decoded);
       }
       if (decoded is Map) {
-        return GameState.fromJson(
-          <String, dynamic>{
-            for (final MapEntry<dynamic, dynamic> entry in decoded.entries)
-              entry.key.toString(): entry.value,
-          },
-        );
+        return GameState.fromJson(<String, dynamic>{
+          for (final MapEntry<dynamic, dynamic> entry in decoded.entries)
+            entry.key.toString(): entry.value,
+        });
       }
     } catch (_) {
       // Bozuk cache uygulamayı çökertmez: temiz başlangıç yapılır.
@@ -78,15 +89,47 @@ final class LocalGameStore implements GameStore {
   }
 
   @override
-  Future<void> save(GameState state) async {
-    await _preferences.setString(
-      AppConstants.cacheGameState,
-      jsonEncode(state.toJson()),
-    );
+  Future<void> save(GameState state) {
+    _latest = state;
+    _writeTimer?.cancel();
+    _writeTimer = Timer(writeDebounce, () {
+      unawaited(_writeLatest());
+    });
+    return _writeChain;
+  }
+
+  /// Uygulama arka plana girerken / kapanırken bekleyen yazımı zorlar.
+  @override
+  Future<void> flush() {
+    _writeTimer?.cancel();
+    _writeTimer = null;
+    return _writeLatest();
+  }
+
+  Future<void> _writeLatest() {
+    final GameState? state = _latest;
+    if (state == null) return _writeChain;
+    final String payload = jsonEncode(state.toJson());
+    _writeChain = _writeChain
+        .catchError((Object _) {
+          // Önceki yazım hatası sonraki denemeyi engellemesin.
+        })
+        .then(
+          (_) => _preferences.setString(AppConstants.cacheGameState, payload),
+        );
+    return _writeChain;
   }
 
   @override
   Future<void> clear() async {
+    _writeTimer?.cancel();
+    _writeTimer = null;
+    _latest = null;
+    try {
+      await _writeChain;
+    } catch (_) {
+      // Önceki hata temizliği engellemez.
+    }
     await _preferences.remove(AppConstants.cacheGameState);
   }
 }

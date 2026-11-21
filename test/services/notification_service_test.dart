@@ -79,6 +79,62 @@ void main() {
     });
   });
 
+  group('Özel gün bildirimleri', () {
+    test('bir gün önce 20:00 ve günün sabahı 09:00 planlanır', () {
+      final DateTime now = DateTime(2026, 11, 20, 12);
+      final DateTime eve = NotificationService.nextSpecialReminder(
+        date: CoupleSpecialDates.ceydaBirthday,
+        now: now,
+        hour: 20,
+        minute: 0,
+        oneDayBefore: true,
+      );
+      final DateTime day = NotificationService.nextSpecialReminder(
+        date: CoupleSpecialDates.ceydaBirthday,
+        now: now,
+        hour: 9,
+        minute: 0,
+        oneDayBefore: false,
+      );
+
+      expect(eve, DateTime(2026, 11, 26, 20));
+      expect(day, DateTime(2026, 11, 27, 9));
+      expect(
+        NotificationTexts.specialDateEve(CoupleSpecialDates.ceydaBirthday),
+        contains("Ceyda'nın Doğum Günü"),
+      );
+      expect(
+        NotificationTexts.specialDateDay(CoupleSpecialDates.ceydaBirthday),
+        startsWith('🎉 Bugün'),
+      );
+    });
+
+    test('geçmiş saat bir sonraki yıla taşınır', () {
+      final DateTime now = DateTime(2026, 11, 27, 10);
+      final DateTime day = NotificationService.nextSpecialReminder(
+        date: CoupleSpecialDates.ceydaBirthday,
+        now: now,
+        hour: 9,
+        minute: 0,
+        oneDayBefore: false,
+      );
+      expect(day, DateTime(2027, 11, 27, 9));
+      expect(day.isAfter(now), isTrue);
+    });
+
+    test('yılbaşı gecesi bir gün önce aralık 31’e düşer', () {
+      final DateTime now = DateTime(2026, 12, 1);
+      final DateTime eve = NotificationService.nextSpecialReminder(
+        date: CoupleSpecialDates.anniversary,
+        now: now,
+        hour: 20,
+        minute: 0,
+        oneDayBefore: true,
+      );
+      expect(eve, DateTime(2027, 1, 30, 20));
+    });
+  });
+
   group('Bildirim zamanlaması', () {
     test('aynı gün içindeki hatırlatıcı 10 dk önceye kurulur', () {
       final DateTime now = DateTime(2026, 11, 16, 9); // Pazartesi

@@ -32,8 +32,18 @@ abstract final class FormatX {
   /// "15 Kasım" gibi kısa Türkçe tarih.
   static String shortDate(DateTime date) {
     const List<String> months = <String>[
-      'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
-      'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+      'Ocak',
+      'Şubat',
+      'Mart',
+      'Nisan',
+      'Mayıs',
+      'Haziran',
+      'Temmuz',
+      'Ağustos',
+      'Eylül',
+      'Ekim',
+      'Kasım',
+      'Aralık',
     ];
     return '${date.day} ${months[date.month - 1]}';
   }

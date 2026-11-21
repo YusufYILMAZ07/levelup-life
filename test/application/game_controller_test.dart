@@ -56,11 +56,11 @@ void main() {
   test('completeQuest arketip bonusuyla XP ekler ve görevi kapatır', () async {
     controller().completeOnboarding(setup);
     final GameState initial = container.read(gameProvider);
-    final Quest quest = initial.quests
-        .firstWhere((Quest item) => item.stat == StatKey.intelligence);
+    final Quest quest = initial.quests.firstWhere(
+      (Quest item) => item.stat == StatKey.intelligence,
+    );
 
-    final int expected =
-        XpEngine.applyBonus(quest.baseXp, 0.15);
+    final int expected = XpEngine.applyBonus(quest.baseXp, 0.15);
     expect(controller().xpForQuest(initial.profile!, quest), expected);
 
     final XpAward? award = controller().completeQuest(quest.id);
@@ -70,7 +70,9 @@ void main() {
     expect(award!.xpGained, expected);
     expect(award.profile.totalXp, expected);
     expect(
-      container.read(gameProvider).quests
+      container
+          .read(gameProvider)
+          .quests
           .firstWhere((Quest item) => item.id == quest.id)
           .isCompleted,
       isTrue,

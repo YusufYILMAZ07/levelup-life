@@ -44,20 +44,21 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   bool get _canContinue => switch (_step) {
-        0 => _draft.hasIdentity,
-        1 => _draft.hasDetails,
-        2 => _draft.hasGoals,
-        _ => true,
-      };
+    0 => _draft.hasIdentity,
+    1 => _draft.hasDetails,
+    2 => _draft.hasGoals,
+    _ => true,
+  };
 
   String? get _hint => switch (_step) {
-        0 when !_draft.hasIdentity => 'Devam etmek için adını yaz.',
-        1 when !_draft.hasDetails => _draft.isProfessional
-            ? 'Devam etmek için sektörünü seç veya yaz.'
-            : 'Devam etmek için bölümünü/alanını seç veya yaz.',
-        2 when !_draft.hasGoals => 'En az bir hedef seç.',
-        _ => null,
-      };
+    0 when !_draft.hasIdentity => 'Devam etmek için adını yaz.',
+    1 when !_draft.hasDetails =>
+      _draft.isProfessional
+          ? 'Devam etmek için sektörünü seç veya yaz.'
+          : 'Devam etmek için bölümünü/alanını seç veya yaz.',
+    2 when !_draft.hasGoals => 'En az bir hedef seç.',
+    _ => null,
+  };
 
   void _applyName(String value) {
     setState(() => _draft = _draft.copyWith(displayName: value));
@@ -72,8 +73,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             : 0,
       );
     });
-    _fieldController.text =
-        role.isProfessionalRole ? _draft.sector : _draft.studyField;
+    _fieldController.text = role.isProfessionalRole
+        ? _draft.sector
+        : _draft.studyField;
   }
 
   void _applyField(String value) {
@@ -171,7 +173,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                             onWorkloadChanged: _applyWorkload,
                           ),
                           StepGoals(setup: _draft, onToggle: _toggleGoal),
-                          StepSummary(setup: _draft, onTempoChanged: _applyTempo),
+                          StepSummary(
+                            setup: _draft,
+                            onTempoChanged: _applyTempo,
+                          ),
                         ],
                       ),
                     ),
@@ -244,8 +249,9 @@ class _Header extends StatelessWidget {
                 ),
                 Text(
                   AppConstants.appTagline,
-                  style: AppTypography.caption
-                      .copyWith(color: AppColors.textTertiary),
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textTertiary,
+                  ),
                 ),
               ],
             ),
@@ -293,6 +299,7 @@ class _StepProgress extends StatelessWidget {
     );
   }
 }
+
 class _BottomBar extends StatelessWidget {
   const _BottomBar({
     required this.step,
@@ -335,8 +342,9 @@ class _BottomBar extends StatelessWidget {
                 Expanded(
                   child: Text(
                     hint!,
-                    style: AppTypography.caption
-                        .copyWith(color: AppColors.textTertiary),
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textTertiary,
+                    ),
                   ),
                 ),
               ],
@@ -398,4 +406,3 @@ class _AuraBlob extends StatelessWidget {
     );
   }
 }
-

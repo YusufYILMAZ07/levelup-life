@@ -30,68 +30,71 @@ class StepDetails extends StatelessWidget {
       setup.isProfessional ? setup.sector : setup.studyField;
 
   List<String> get _options => switch (setup.role) {
-        LifeRole.student => const <String>[
-            'Bilgisayar Mühendisliği',
-            'Tıp',
-            'Hukuk',
-            'İşletme',
-            'Psikoloji',
-            'Elektrik-Elektronik',
-            'Mimarlık',
-            'Makine Mühendisliği',
-          ],
-        LifeRole.highSchool => const <String>[
-            'Sayısal',
-            'Eşit Ağırlık',
-            'Sözel',
-            'Dil',
-            'Meslek Lisesi',
-          ],
-        LifeRole.examPrep => const <String>[
-            'YKS Sayısal',
-            'YKS Eşit Ağırlık',
-            'YKS Sözel',
-            'YKS Dil',
-            'KPSS',
-            'ALES',
-            'YDS / IELTS',
-          ],
-        _ => const <String>[
-            'Yazılım & Teknoloji',
-            'Finans',
-            'Pazarlama',
-            'Tasarım',
-            'Sağlık',
-            'Eğitim',
-            'Hukuk',
-            'Mühendislik',
-            'Girişimcilik',
-          ],
-      };
+    LifeRole.student => const <String>[
+      'Bilgisayar Mühendisliği',
+      'Tıp',
+      'Hukuk',
+      'İşletme',
+      'Psikoloji',
+      'Elektrik-Elektronik',
+      'Mimarlık',
+      'Makine Mühendisliği',
+    ],
+    LifeRole.highSchool => const <String>[
+      'Sayısal',
+      'Eşit Ağırlık',
+      'Sözel',
+      'Dil',
+      'Meslek Lisesi',
+    ],
+    LifeRole.examPrep => const <String>[
+      'YKS Sayısal',
+      'YKS Eşit Ağırlık',
+      'YKS Sözel',
+      'YKS Dil',
+      'KPSS',
+      'ALES',
+      'YDS / IELTS',
+    ],
+    _ => const <String>[
+      'Yazılım & Teknoloji',
+      'Finans',
+      'Pazarlama',
+      'Tasarım',
+      'Sağlık',
+      'Eğitim',
+      'Hukuk',
+      'Mühendislik',
+      'Girişimcilik',
+    ],
+  };
 
   String get _question => switch (setup.role) {
-        LifeRole.student => 'Bölümün ne?',
-        LifeRole.highSchool => 'Alanın ne?',
-        LifeRole.examPrep => 'Hangi alanda hazırlanıyorsun?',
-        _ => 'Hangi sektördesin?',
-      };
+    LifeRole.student => 'Bölümün ne?',
+    LifeRole.highSchool => 'Alanın ne?',
+    LifeRole.examPrep => 'Hangi alanda hazırlanıyorsun?',
+    _ => 'Hangi sektördesin?',
+  };
 
   String get _hint => switch (setup.role) {
-        LifeRole.student => 'Örn. Bilgisayar Mühendisliği',
-        LifeRole.highSchool => 'Örn. Sayısal',
-        LifeRole.examPrep => 'Örn. YKS Sayısal',
-        _ => 'Örn. Yazılım & Teknoloji',
-      };
+    LifeRole.student => 'Örn. Bilgisayar Mühendisliği',
+    LifeRole.highSchool => 'Örn. Sayısal',
+    LifeRole.examPrep => 'Örn. YKS Sayısal',
+    _ => 'Örn. Yazılım & Teknoloji',
+  };
 
   @override
   Widget build(BuildContext context) {
     final String title = setup.isProfessional
         ? 'İşin ve tempon'
         : setup.role == LifeRole.examPrep
-            ? 'Hedefin ve alanın'
-            : 'Okulun ve bölümün';
+        ? 'Hedefin ve alanın'
+        : 'Okulun ve bölümün';
 
     return ListView(
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.xxl,
         AppSpacing.sm,
@@ -140,10 +143,7 @@ class StepDetails extends StatelessWidget {
             title: 'Kaçıncı sınıfsın?',
             subtitle: 'Görev zorluğu sınıf seviyene göre ayarlanır.',
           ),
-          GradeSelector(
-            value: setup.gradeYear,
-            onChanged: onGradeChanged,
-          ),
+          GradeSelector(value: setup.gradeYear, onChanged: onGradeChanged),
         ],
         if (setup.isProfessional) ...<Widget>[
           const SizedBox(height: AppSpacing.xxl),

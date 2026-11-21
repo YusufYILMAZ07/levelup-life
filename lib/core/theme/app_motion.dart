@@ -26,7 +26,11 @@ abstract final class AppMotion {
   static const Curve overshoot = Curves.elasticOut;
 
   /// Liste elemanlarının kademeli girişi için hazır interval.
-  static const Interval staggered = Interval(0.15, 1, curve: Curves.easeOutCubic);
+  static const Interval staggered = Interval(
+    0.15,
+    1,
+    curve: Curves.easeOutCubic,
+  );
 
   /// Kartların kademeli girişi: index * [staggerStep] ms gecikme.
   static const int staggerStep = 70;

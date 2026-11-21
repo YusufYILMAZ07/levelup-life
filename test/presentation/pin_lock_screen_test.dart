@@ -35,13 +35,13 @@ void main() {
     }
   }
 
-  testWidgets('varsayılan 1402 PIN kilidi açar', (WidgetTester tester) async {
+  testWidgets('varsayılan 3101 PIN kilidi açar', (WidgetTester tester) async {
     final ProviderContainer container = await pumpLock(tester);
 
     expect(find.text('Yusuf & Ceyda'), findsOneWidget);
     expect(container.read(pinLockProvider), isTrue);
 
-    await tapPin(tester, '1402');
+    await tapPin(tester, '3101');
     await tester.pumpAndSettle();
 
     expect(container.read(pinLockProvider), isFalse);

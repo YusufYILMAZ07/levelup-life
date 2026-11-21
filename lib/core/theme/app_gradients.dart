@@ -11,7 +11,11 @@ abstract final class AppGradients {
   static const LinearGradient canvas = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: <Color>[Color(0xFFFFFFFF), AppColors.background, AppColors.backgroundAlt],
+    colors: <Color>[
+      Color(0xFFFFFFFF),
+      AppColors.background,
+      AppColors.backgroundAlt,
+    ],
     stops: <double>[0, 0.55, 1],
   );
 
@@ -31,7 +35,11 @@ abstract final class AppGradients {
 
   /// Genel seviye (Level) çubuğu — üç duraklı, canlı.
   static const LinearGradient levelBar = LinearGradient(
-    colors: <Color>[AppColors.primaryDeep, AppColors.primary, AppColors.accentBlue],
+    colors: <Color>[
+      AppColors.primaryDeep,
+      AppColors.primary,
+      AppColors.accentBlue,
+    ],
   );
 
   /// XP kazanımı vurgusu (açık → koyu, "parlayan" his).
@@ -46,7 +54,11 @@ abstract final class AppGradients {
 
   /// Level-up / ödül anları için kutlama gradient'i.
   static const LinearGradient legendary = LinearGradient(
-    colors: <Color>[Color(0xFFF59E0B), Color(0xFFF472B6), AppColors.primaryBright],
+    colors: <Color>[
+      Color(0xFFF59E0B),
+      Color(0xFFF472B6),
+      AppColors.primaryBright,
+    ],
   );
 
   /// Beyaz zemin üzerinde yumuşak renkli "aura" (kart arkaları).
@@ -59,7 +71,10 @@ abstract final class AppGradients {
     return LinearGradient(
       begin: begin,
       end: end,
-      colors: <Color>[color.withValues(alpha: peakOpacity), color.withValues(alpha: 0)],
+      colors: <Color>[
+        color.withValues(alpha: peakOpacity),
+        color.withValues(alpha: 0),
+      ],
     );
   }
 
@@ -68,7 +83,10 @@ abstract final class AppGradients {
     return LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
-      colors: <Color>[color.withValues(alpha: peakOpacity), color.withValues(alpha: 0)],
+      colors: <Color>[
+        color.withValues(alpha: peakOpacity),
+        color.withValues(alpha: 0),
+      ],
     );
   }
 

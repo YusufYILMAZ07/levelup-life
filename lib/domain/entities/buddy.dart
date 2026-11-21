@@ -70,44 +70,43 @@ final class Buddy {
     String? sharedQuestlineId,
     DateTime? lastNudgeSentAt,
     int? nudgesSentThisWeek,
-  }) =>
-      Buddy(
-        id: id,
-        displayName: displayName ?? this.displayName,
-        archetype: archetype ?? this.archetype,
-        level: level ?? this.level,
-        weeklyXp: weeklyXp ?? this.weeklyXp,
-        streakDays: streakDays ?? this.streakDays,
-        sharedQuestlineId: sharedQuestlineId ?? this.sharedQuestlineId,
-        lastNudgeSentAt: lastNudgeSentAt ?? this.lastNudgeSentAt,
-        nudgesSentThisWeek: nudgesSentThisWeek ?? this.nudgesSentThisWeek,
-      );
+  }) => Buddy(
+    id: id,
+    displayName: displayName ?? this.displayName,
+    archetype: archetype ?? this.archetype,
+    level: level ?? this.level,
+    weeklyXp: weeklyXp ?? this.weeklyXp,
+    streakDays: streakDays ?? this.streakDays,
+    sharedQuestlineId: sharedQuestlineId ?? this.sharedQuestlineId,
+    lastNudgeSentAt: lastNudgeSentAt ?? this.lastNudgeSentAt,
+    nudgesSentThisWeek: nudgesSentThisWeek ?? this.nudgesSentThisWeek,
+  );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'display_name': displayName,
-        'archetype': archetype.code,
-        'level': level,
-        'weekly_xp': weeklyXp,
-        'streak_days': streakDays,
-        'shared_questline_id': sharedQuestlineId,
-        'last_nudge_sent_at': lastNudgeSentAt?.toIso8601String(),
-        'nudges_sent_this_week': nudgesSentThisWeek,
-      };
+    'id': id,
+    'display_name': displayName,
+    'archetype': archetype.code,
+    'level': level,
+    'weekly_xp': weeklyXp,
+    'streak_days': streakDays,
+    'shared_questline_id': sharedQuestlineId,
+    'last_nudge_sent_at': lastNudgeSentAt?.toIso8601String(),
+    'nudges_sent_this_week': nudgesSentThisWeek,
+  };
 
   factory Buddy.fromJson(Map<String, dynamic> json) => Buddy(
-        id: JsonX.asString(json['id']),
-        displayName: JsonX.asString(json['display_name'], fallback: 'Gezgin'),
-        archetype: Archetype.fromCode(JsonX.asString(json['archetype'])),
-        level: JsonX.asInt(json['level'], fallback: 1),
-        weeklyXp: JsonX.asInt(json['weekly_xp']),
-        streakDays: JsonX.asInt(json['streak_days']),
-        sharedQuestlineId: json['shared_questline_id'] == null
-            ? null
-            : JsonX.asString(json['shared_questline_id']),
-        lastNudgeSentAt: JsonX.asDate(json['last_nudge_sent_at']),
-        nudgesSentThisWeek: JsonX.asInt(json['nudges_sent_this_week']),
-      );
+    id: JsonX.asString(json['id']),
+    displayName: JsonX.asString(json['display_name'], fallback: 'Gezgin'),
+    archetype: Archetype.fromCode(JsonX.asString(json['archetype'])),
+    level: JsonX.asInt(json['level'], fallback: 1),
+    weeklyXp: JsonX.asInt(json['weekly_xp']),
+    streakDays: JsonX.asInt(json['streak_days']),
+    sharedQuestlineId: json['shared_questline_id'] == null
+        ? null
+        : JsonX.asString(json['shared_questline_id']),
+    lastNudgeSentAt: JsonX.asDate(json['last_nudge_sent_at']),
+    nudgesSentThisWeek: JsonX.asInt(json['nudges_sent_this_week']),
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -123,8 +122,17 @@ final class Buddy {
       other.nudgesSentThisWeek == nudgesSentThisWeek;
 
   @override
-  int get hashCode => Object.hash(id, displayName, archetype, level, weeklyXp,
-      streakDays, sharedQuestlineId, lastNudgeSentAt, nudgesSentThisWeek);
+  int get hashCode => Object.hash(
+    id,
+    displayName,
+    archetype,
+    level,
+    weeklyXp,
+    streakDays,
+    sharedQuestlineId,
+    lastNudgeSentAt,
+    nudgesSentThisWeek,
+  );
 
   @override
   String toString() =>

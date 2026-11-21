@@ -131,9 +131,10 @@ final class DailyXpLog {
   }
 
   /// Son [days] günlük penceredeki aktif gün sayısı (istatistik kartları).
-  int activeDaysIn(DateTime end, int days) => series(end: end, days: days)
-      .where((DailyXp point) => point.isActive)
-      .length;
+  int activeDaysIn(DateTime end, int days) => series(
+    end: end,
+    days: days,
+  ).where((DailyXp point) => point.isActive).length;
 
   static Map<DateTime, int> _prune(Map<DateTime, int> source) {
     if (source.length <= maxStoredDays) return source;
@@ -143,9 +144,9 @@ final class DailyXpLog {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        for (final MapEntry<DateTime, int> entry in byDay.entries)
-          DateX.isoDay(entry.key): entry.value,
-      };
+    for (final MapEntry<DateTime, int> entry in byDay.entries)
+      DateX.isoDay(entry.key): entry.value,
+  };
 
   factory DailyXpLog.fromJson(Map<String, dynamic> json) {
     final Map<DateTime, int> byDay = <DateTime, int>{};
@@ -171,9 +172,9 @@ final class DailyXpLog {
 
   @override
   int get hashCode => Object.hashAllUnordered(<Object>[
-        for (final MapEntry<DateTime, int> entry in byDay.entries)
-          Object.hash(entry.key, entry.value),
-      ]);
+    for (final MapEntry<DateTime, int> entry in byDay.entries)
+      Object.hash(entry.key, entry.value),
+  ]);
 
   @override
   String toString() => 'DailyXpLog($activeDays gün · $totalXp XP)';

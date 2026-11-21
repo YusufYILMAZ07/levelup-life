@@ -12,6 +12,7 @@ import 'package:levelup_life/presentation/chat/chat_screen.dart';
 import 'package:levelup_life/presentation/chat/widgets/photo_presets.dart';
 import 'package:levelup_life/presentation/dashboard/dashboard_screen.dart';
 import 'package:levelup_life/presentation/development/development_screen.dart';
+import 'package:levelup_life/services/app_settings.dart';
 
 /// Çift sürümü ekranlarının temel akışları: partner segmenti, rubrik puanlama,
 /// hızlı eylem, sohbet gönderimi ve doğum günü kutlaması.
@@ -45,7 +46,44 @@ void main() {
     expect(find.byKey(const Key('partner-ceyda')), findsOneWidget);
     expect(find.byKey(const Key('live-status-yusuf')), findsOneWidget);
     expect(find.byKey(const Key('live-status-ceyda')), findsOneWidget);
-    expect(find.textContaining('doğum günü'), findsWidgets);
+    expect(find.byKey(const Key('special-date-banner')), findsOneWidget);
+    expect(find.textContaining('kaldı'), findsOneWidget);
+  });
+
+  testWidgets('cihaz kilidi profil değiştiriciyi kimlik hapına çevirir', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 950));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final GameState ceydaState = initialState.activatePartner(
+      CouplePartner.ceydaId,
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          gameStoreProvider.overrideWithValue(MemoryGameStore(ceydaState)),
+          appSettingsStoreProvider.overrideWithValue(
+            MemoryAppSettingsStore(
+              const AppSettings(
+                deviceRole: CouplePartner.ceydaId,
+                lockToDeviceOwner: true,
+                deviceOwnerConfigured: true,
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const DashboardScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('locked-identity-pill')), findsOneWidget);
+    expect(find.byKey(const Key('partner-yusuf')), findsNothing);
+    expect(find.byKey(const Key('partner-ceyda')), findsNothing);
+    expect(find.textContaining('Yusuf ile Bağlı'), findsOneWidget);
   });
 
   testWidgets('gelişim sekmesinde rubrik puanı XP kazandırır', (
@@ -113,6 +151,10 @@ void main() {
     await pump(tester, const Scaffold(body: Center(child: BirthdayModal())));
 
     expect(find.text('Sevgili Ceyda,'), findsOneWidget);
+    expect(find.byKey(const Key('special-date-list')), findsOneWidget);
+    for (final SpecialDate date in CoupleSpecialDates.all) {
+      expect(find.byKey(Key('special-date-${date.id}')), findsOneWidget);
+    }
     expect(find.byKey(const Key('birthday-close')), findsOneWidget);
     expect(find.byKey(const Key('birthday-note-next')), findsOneWidget);
     expect(

@@ -56,7 +56,9 @@ class XpTrendChart extends StatelessWidget {
       0,
       (int sum, DailyXp point) => sum + point.xp,
     );
-    final int averageXp = series.isEmpty ? 0 : (totalXp / series.length).round();
+    final int averageXp = series.isEmpty
+        ? 0
+        : (totalXp / series.length).round();
     final DateTime today = DateX.today(now);
     final bool compact = series.length > 12;
 
@@ -131,8 +133,9 @@ class _XpBarColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Aktif günler en az %10 yükseklik alır: "1 XP" de görünür kalır.
-    final double fraction =
-        point.isActive ? (0.10 + 0.90 * ratio.clamp(0.0, 1.0)) : 0.03;
+    final double fraction = point.isActive
+        ? (0.10 + 0.90 * ratio.clamp(0.0, 1.0))
+        : 0.03;
 
     return Semantics(
       label: '${FormatX.shortDate(point.day)}: ${point.xp} XP',
@@ -151,8 +154,8 @@ class _XpBarColumn extends StatelessWidget {
                       gradient: !point.isActive
                           ? null
                           : (isToday
-                              ? AppGradients.levelBar
-                              : AppGradients.xpBar),
+                                ? AppGradients.levelBar
+                                : AppGradients.xpBar),
                       color: point.isActive ? null : AppColors.surfaceSunken,
                       borderRadius: BorderRadius.circular(compact ? 3 : 6),
                       boxShadow: point.isActive
@@ -178,8 +181,7 @@ class _XpBarColumn extends StatelessWidget {
                 overflow: TextOverflow.clip,
                 style: AppTypography.caption.copyWith(
                   fontSize: compact ? 9 : 11,
-                  color:
-                      isToday ? AppColors.primary : AppColors.textTertiary,
+                  color: isToday ? AppColors.primary : AppColors.textTertiary,
                   fontWeight: isToday ? FontWeight.w800 : FontWeight.w500,
                 ),
               ),

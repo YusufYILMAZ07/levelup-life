@@ -9,7 +9,7 @@ import '../widgets/partner_avatar.dart';
 
 /// Açılışta / uygulamaya dönüşte gösterilen zarif 4 haneli numpad kilidi.
 ///
-/// PIN varsayılan olarak Ceyda'nın doğum günü **1402**'dir; Ayarlar → Gizlilik
+/// PIN varsayılan olarak yıldönümümüz **3101**'dir; Ayarlar → Gizlilik
 /// bölümünden değiştirilebilir. Kilit kapalıysa bu ekran hiç çizilmez.
 class PinLockScreen extends ConsumerStatefulWidget {
   const PinLockScreen({super.key});
@@ -66,7 +66,7 @@ class _PinLockScreenState extends ConsumerState<PinLockScreen> {
         SnackBar(
           content: Text(
             pin == AppSettings.defaultPin
-                ? 'İpucu: Ceyda’nın doğum günü · 1402 🌸'
+                ? 'İpucu: Yıldönümümüz · 3101 💍'
                 : 'PIN yalnızca bu telefonda saklanır 🔒',
           ),
           duration: const Duration(seconds: 3),

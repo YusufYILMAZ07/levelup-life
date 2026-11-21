@@ -470,7 +470,8 @@ class CoupleRadarCard extends ConsumerWidget {
               size: 236,
               accent: CouplePalette.yusuf,
               secondaryAccent: CouplePalette.ceyda,
-              primaryLabel: '${CouplePalette.emojiOf(CouplePartner.yusufId)} '
+              primaryLabel:
+                  '${CouplePalette.emojiOf(CouplePartner.yusufId)} '
                   'Yusuf',
               secondaryLabel:
                   '${CouplePalette.emojiOf(CouplePartner.ceydaId)} Ceyda',

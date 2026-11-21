@@ -104,6 +104,7 @@ final class SupabaseSyncService {
     required this.onRemoteMessage,
     required this.onRemoteState,
     required this.onStatusChanged,
+    this.onRemoteHistory,
   });
 
   static const String mediaBucket = 'couple-media';
@@ -152,6 +153,9 @@ alter publication supabase_realtime add table public.couple_rooms;
   final void Function(GameState state) onRemoteState;
   final void Function(SyncStatus status, String message) onStatusChanged;
 
+  /// Bağlantı sonrası son 200 mesaj (eskiden yeniye) buradan iletilir.
+  final void Function(List<ChatMessage> messages)? onRemoteHistory;
+
   SupabaseClient? _client;
   RealtimeChannel? _channel;
   SyncConfig? _config;
@@ -181,8 +185,9 @@ alter publication supabase_realtime add table public.couple_rooms;
       if (!_bootstrapped) {
         await Supabase.initialize(
           url: config.url,
-          // Dashboard'daki "anon public" anahtarı burada kullanılır.
-          publishableKey: config.anonKey,
+          // supabase_flutter 2.8.x uyumlu: Dashboard'daki "anon public".
+          // ignore: deprecated_member_use
+          anonKey: config.anonKey,
         );
         _bootstrapped = true;
         _bootstrappedUrl = config.url;
@@ -245,6 +250,10 @@ alter publication supabase_realtime add table public.couple_rooms;
         }
       });
 
+      _client = client;
+      _channel = channel;
+      _config = config;
+
       // İlk bağlantıda odadaki mevcut durumu çek (geçmiş sohbet + ilerleme).
       try {
         final Map<String, dynamic>? room = await client
@@ -267,9 +276,15 @@ alter publication supabase_realtime add table public.couple_rooms;
         // Tablo henüz kurulmamış olabilir; bağlantı yine de çalışır.
       }
 
-      _client = client;
-      _channel = channel;
-      _config = config;
+      // Son 200 mesajı çek. Boş gelse bile callback çağrılır; koordinatör
+      // yereldeki mesajları buluta geri doldurur → sıfır veri kaybı.
+      try {
+        final List<ChatMessage> history = await pullFullHistory(limit: 200);
+        onRemoteHistory?.call(history);
+      } catch (_) {
+        // Geçmiş çekilemezse canlı akış yine çalışır.
+      }
+
       onStatusChanged(SyncStatus.connected, 'Canlı · ${config.roomCode}');
       return true;
     } catch (error) {
@@ -334,6 +349,76 @@ alter publication supabase_realtime add table public.couple_rooms;
     } catch (_) {
       return false;
     }
+  }
+
+  /// Bağlantı kurulduğunda son [limit] mesajı çeker (eskiden yeniye).
+  Future<List<ChatMessage>> pullFullHistory({int limit = 200}) =>
+      fetchMessages(limit: limit);
+
+  /// Eski mesaj sayfalama: [before] anından daha eski kayıtları getirir.
+  Future<List<ChatMessage>> fetchMessages({
+    int limit = 200,
+    DateTime? before,
+  }) async {
+    final SupabaseClient? client = _client;
+    final SyncConfig? config = _config;
+    if (client == null || config == null) return const <ChatMessage>[];
+    try {
+      final int safeLimit = limit.clamp(1, 500);
+      final List<dynamic> rows = before == null
+          ? await client
+                .from(messagesTable)
+                .select('payload, created_at')
+                .eq('room_code', config.roomCode)
+                .order('created_at', ascending: false)
+                .limit(safeLimit)
+          : await client
+                .from(messagesTable)
+                .select('payload, created_at')
+                .eq('room_code', config.roomCode)
+                .lt('created_at', before.toUtc().toIso8601String())
+                .order('created_at', ascending: false)
+                .limit(safeLimit);
+      final List<ChatMessage> messages = <ChatMessage>[];
+      for (final dynamic row in rows) {
+        if (row is! Map) continue;
+        final Object? raw = row['payload'];
+        if (raw is! Map) continue;
+        final Map<String, dynamic> json = Map<String, dynamic>.from(raw);
+        json['created_at'] ??= row['created_at'];
+        try {
+          final ChatMessage message = ChatMessage.fromJson(json);
+          if (message.id.trim().isNotEmpty) messages.add(message);
+        } catch (_) {
+          // Tek bozuk satır geçmişin tamamını düşürmez.
+        }
+      }
+      return mergeHistory(const <ChatMessage>[], messages);
+    } catch (_) {
+      return const <ChatMessage>[];
+    }
+  }
+
+  /// id ile tekilleştirir ve kronolojik sıraya koyar.
+  ///
+  /// Yerelde aynı id varsa yerel kopya korunur (okundu/beğeni gibi cihaz
+  /// üstündeki güncel durumu ezmemek için).
+  static List<ChatMessage> mergeHistory(
+    List<ChatMessage> local,
+    List<ChatMessage> remote,
+  ) {
+    final Map<String, ChatMessage> byId = <String, ChatMessage>{
+      for (final ChatMessage message in local) message.id: message,
+    };
+    for (final ChatMessage message in remote) {
+      byId.putIfAbsent(message.id, () => message);
+    }
+    final List<ChatMessage> merged = byId.values.toList(growable: false);
+    merged.sort((ChatMessage a, ChatMessage b) {
+      final int byTime = a.createdAt.compareTo(b.createdAt);
+      return byTime != 0 ? byTime : a.id.compareTo(b.id);
+    });
+    return merged;
   }
 
   /// Fotoğraf / videoyu `couple-media` kovasına yükler, public URL döner.

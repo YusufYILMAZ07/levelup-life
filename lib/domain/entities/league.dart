@@ -73,36 +73,35 @@ final class LeagueEntry {
     Archetype? archetype,
     int? streakDays,
     bool? isCurrentUser,
-  }) =>
-      LeagueEntry(
-        userId: userId,
-        displayName: displayName ?? this.displayName,
-        weeklyXp: weeklyXp ?? this.weeklyXp,
-        level: level ?? this.level,
-        archetype: archetype ?? this.archetype,
-        streakDays: streakDays ?? this.streakDays,
-        isCurrentUser: isCurrentUser ?? this.isCurrentUser,
-      );
+  }) => LeagueEntry(
+    userId: userId,
+    displayName: displayName ?? this.displayName,
+    weeklyXp: weeklyXp ?? this.weeklyXp,
+    level: level ?? this.level,
+    archetype: archetype ?? this.archetype,
+    streakDays: streakDays ?? this.streakDays,
+    isCurrentUser: isCurrentUser ?? this.isCurrentUser,
+  );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'user_id': userId,
-        'display_name': displayName,
-        'weekly_xp': weeklyXp,
-        'level': level,
-        'archetype': archetype.code,
-        'streak_days': streakDays,
-        'is_current_user': isCurrentUser,
-      };
+    'user_id': userId,
+    'display_name': displayName,
+    'weekly_xp': weeklyXp,
+    'level': level,
+    'archetype': archetype.code,
+    'streak_days': streakDays,
+    'is_current_user': isCurrentUser,
+  };
 
   factory LeagueEntry.fromJson(Map<String, dynamic> json) => LeagueEntry(
-        userId: JsonX.asString(json['user_id']),
-        displayName: JsonX.asString(json['display_name'], fallback: 'Gezgin'),
-        weeklyXp: JsonX.asInt(json['weekly_xp']),
-        level: JsonX.asInt(json['level'], fallback: 1),
-        archetype: Archetype.fromCode(JsonX.asString(json['archetype'])),
-        streakDays: JsonX.asInt(json['streak_days']),
-        isCurrentUser: JsonX.asBool(json['is_current_user']),
-      );
+    userId: JsonX.asString(json['user_id']),
+    displayName: JsonX.asString(json['display_name'], fallback: 'Gezgin'),
+    weeklyXp: JsonX.asInt(json['weekly_xp']),
+    level: JsonX.asInt(json['level'], fallback: 1),
+    archetype: Archetype.fromCode(JsonX.asString(json['archetype'])),
+    streakDays: JsonX.asInt(json['streak_days']),
+    isCurrentUser: JsonX.asBool(json['is_current_user']),
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -117,7 +116,14 @@ final class LeagueEntry {
 
   @override
   int get hashCode => Object.hash(
-      userId, displayName, weeklyXp, level, archetype, streakDays, isCurrentUser);
+    userId,
+    displayName,
+    weeklyXp,
+    level,
+    archetype,
+    streakDays,
+    isCurrentUser,
+  );
 
   @override
   String toString() => 'LeagueEntry($displayName · $weeklyXp XP · Lv$level)';
@@ -191,8 +197,8 @@ final class League {
   int get averageWeeklyXp => entries.isEmpty
       ? 0
       : (entries.fold<int>(0, (int sum, LeagueEntry e) => sum + e.weeklyXp) /
-              entries.length)
-          .round();
+                entries.length)
+            .round();
 
   /// Ligi yeniden kurmadan XP ekler (haftalık güncelleme için).
   League applyXp(String userId, int amount) {
@@ -211,15 +217,15 @@ final class League {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'tier': tier.code,
-        'week_start': weekStart.toIso8601String(),
-        'entries': <Map<String, dynamic>>[
-          for (final LeagueEntry entry in entries) entry.toJson(),
-        ],
-        'promotion_slots': promotionSlots,
-        'relegation_slots': relegationSlots,
-      };
+    'id': id,
+    'tier': tier.code,
+    'week_start': weekStart.toIso8601String(),
+    'entries': <Map<String, dynamic>>[
+      for (final LeagueEntry entry in entries) entry.toJson(),
+    ],
+    'promotion_slots': promotionSlots,
+    'relegation_slots': relegationSlots,
+  };
 
   factory League.fromJson(Map<String, dynamic> json) {
     final Object? rawEntries = json['entries'];
@@ -256,10 +262,17 @@ final class League {
       _sameRanking(ranking, other.ranking);
 
   @override
-  int get hashCode => Object.hash(id, tier, weekStart, promotionSlots,
-      relegationSlots, Object.hashAll(ranking));
+  int get hashCode => Object.hash(
+    id,
+    tier,
+    weekStart,
+    promotionSlots,
+    relegationSlots,
+    Object.hashAll(ranking),
+  );
 
   @override
-  String toString() => 'League(${tier.label} · ${entries.length} kişi · '
+  String toString() =>
+      'League(${tier.label} · ${entries.length} kişi · '
       'sıram: $currentUserRank)';
 }

@@ -9,20 +9,20 @@ import 'app_colors.dart';
 /// eşlemesini alır. Böylece yeni bir stat eklendiğinde derleyici bizi uyarır.
 extension StatPalette on StatKey {
   Color get color => switch (this) {
-        StatKey.intelligence => AppColors.statIntelligence,
-        StatKey.strength => AppColors.statStrength,
-        StatKey.vitality => AppColors.statVitality,
-        StatKey.productivity => AppColors.statProductivity,
-        StatKey.willpower => AppColors.statWillpower,
-      };
+    StatKey.intelligence => AppColors.statIntelligence,
+    StatKey.strength => AppColors.statStrength,
+    StatKey.vitality => AppColors.statVitality,
+    StatKey.productivity => AppColors.statProductivity,
+    StatKey.willpower => AppColors.statWillpower,
+  };
 
   IconData get icon => switch (this) {
-        StatKey.intelligence => Icons.psychology_rounded,
-        StatKey.strength => Icons.fitness_center_rounded,
-        StatKey.vitality => Icons.eco_rounded,
-        StatKey.productivity => Icons.rocket_launch_rounded,
-        StatKey.willpower => Icons.shield_rounded,
-      };
+    StatKey.intelligence => Icons.psychology_rounded,
+    StatKey.strength => Icons.fitness_center_rounded,
+    StatKey.vitality => Icons.eco_rounded,
+    StatKey.productivity => Icons.rocket_launch_rounded,
+    StatKey.willpower => Icons.shield_rounded,
+  };
 
   /// Stat kartı zemini için %8 opaklıkta renk tonu.
   Color get surfaceTint => color.withValues(alpha: 0.08);
@@ -35,13 +35,13 @@ extension StatPalette on StatKey {
 
   /// İkon madalyonu için canlı gradient (açık → koyu, "cam" his).
   LinearGradient get gradient => LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: <Color>[Color.lerp(color, Colors.white, 0.22)!, color],
-      );
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: <Color>[Color.lerp(color, Colors.white, 0.22)!, color],
+  );
 
   /// Progress bar dolgusu: solda parlak, sağda doygun.
   LinearGradient get barGradient => LinearGradient(
-        colors: <Color>[Color.lerp(color, Colors.white, 0.34)!, color],
-      );
+    colors: <Color>[Color.lerp(color, Colors.white, 0.34)!, color],
+  );
 }

@@ -75,7 +75,9 @@ abstract final class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: AppTypography.title.copyWith(color: AppColors.textPrimary),
+        titleTextStyle: AppTypography.title.copyWith(
+          color: AppColors.textPrimary,
+        ),
         iconTheme: const IconThemeData(color: AppColors.textPrimary, size: 22),
         systemOverlayStyle: SystemUiOverlayStyle.dark,
       ),
@@ -151,9 +153,12 @@ abstract final class AppTheme {
         backgroundColor: AppColors.surfaceMuted,
         selectedColor: const Color(0xFFEEF2FF),
         side: const BorderSide(color: AppColors.border),
-        labelStyle: AppTypography.caption.copyWith(color: AppColors.textSecondary),
-        secondaryLabelStyle:
-            AppTypography.caption.copyWith(color: AppColors.primary),
+        labelStyle: AppTypography.caption.copyWith(
+          color: AppColors.textSecondary,
+        ),
+        secondaryLabelStyle: AppTypography.caption.copyWith(
+          color: AppColors.primary,
+        ),
         shape: const RoundedRectangleBorder(borderRadius: AppRadii.pillAll),
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
@@ -191,9 +196,12 @@ abstract final class AppTheme {
         backgroundColor: AppColors.surface,
         surfaceTintColor: Colors.transparent,
         shape: const RoundedRectangleBorder(borderRadius: AppRadii.xlAll),
-        titleTextStyle: AppTypography.title.copyWith(color: AppColors.textPrimary),
-        contentTextStyle:
-            AppTypography.body.copyWith(color: AppColors.textSecondary),
+        titleTextStyle: AppTypography.title.copyWith(
+          color: AppColors.textPrimary,
+        ),
+        contentTextStyle: AppTypography.body.copyWith(
+          color: AppColors.textSecondary,
+        ),
       ),
       tooltipTheme: TooltipThemeData(
         textStyle: AppTypography.caption.copyWith(color: AppColors.surface),

@@ -18,6 +18,7 @@ class CouplePhoto extends StatelessWidget {
     this.caption,
     this.height = 190,
     this.borderRadius,
+    this.imageCacheWidth = 600,
     super.key,
   });
 
@@ -25,6 +26,10 @@ class CouplePhoto extends StatelessWidget {
   final String? caption;
   final double height;
   final BorderRadius? borderRadius;
+
+  /// Sohbet/albüm küçük görselleri 600 px'e çözülür. Lightbox `null` geçerek
+  /// tam çözünürlüklü görüntüyü `InteractiveViewer` içinde açar.
+  final int? imageCacheWidth;
 
   static bool isDataUrl(String source) => source.startsWith('data:image/');
 
@@ -47,11 +52,12 @@ class CouplePhoto extends StatelessWidget {
             if (preset != null)
               _PresetSurface(preset: preset)
             else if (isDataUrl(source))
-              _MemorySurface(dataUrl: source)
+              _MemorySurface(dataUrl: source, cacheWidth: imageCacheWidth)
             else if (isHttpUrl(source))
               Image.network(
                 source,
                 fit: BoxFit.cover,
+                cacheWidth: imageCacheWidth,
                 errorBuilder: (_, _, _) => const _PhotoFallback(),
                 loadingBuilder:
                     (
@@ -61,7 +67,7 @@ class CouplePhoto extends StatelessWidget {
                     ) => progress == null ? child : const _PhotoFallback(),
               )
             else if (isLocalMediaPath(source))
-              _LocalFileSurface(path: source)
+              _LocalFileSurface(path: source, cacheWidth: imageCacheWidth)
             else
               const _PhotoFallback(),
             if (caption != null && caption!.trim().isNotEmpty)
@@ -160,9 +166,10 @@ class _PresetSurface extends StatelessWidget {
 }
 
 class _MemorySurface extends StatelessWidget {
-  const _MemorySurface({required this.dataUrl});
+  const _MemorySurface({required this.dataUrl, this.cacheWidth});
 
   final String dataUrl;
+  final int? cacheWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -172,6 +179,7 @@ class _MemorySurface extends StatelessWidget {
       return Image.memory(
         base64Decode(encoded),
         fit: BoxFit.cover,
+        cacheWidth: cacheWidth,
         errorBuilder: (_, _, _) => const _PhotoFallback(),
       );
     } on FormatException {
@@ -182,16 +190,19 @@ class _MemorySurface extends StatelessWidget {
 
 /// iOS / Android'de uygulamanın `media/` klasöründen okunan gerçek fotoğraf.
 class _LocalFileSurface extends StatelessWidget {
-  const _LocalFileSurface({required this.path});
+  const _LocalFileSurface({required this.path, this.cacheWidth});
 
   final String path;
+  final int? cacheWidth;
 
   @override
   Widget build(BuildContext context) {
     final ImageProvider<Object>? provider = localImageProvider(path);
     if (provider == null) return const _PhotoFallback();
     return Image(
-      image: provider,
+      image: cacheWidth == null
+          ? provider
+          : ResizeImage.resizeIfNeeded(cacheWidth, null, provider),
       fit: BoxFit.cover,
       errorBuilder: (_, _, _) => const _PhotoFallback(),
     );

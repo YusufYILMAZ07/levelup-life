@@ -13,13 +13,15 @@ enum EnergyMode {
     code: 'low_energy',
     label: 'Enerjim Düşük',
     tagline: 'Mikro görevler',
-    description: 'Ağır görevler 10 dakikalık mikro adımlara bölünür; serin korunur.',
+    description:
+        'Ağır görevler 10 dakikalık mikro adımlara bölünür; serin korunur.',
   ),
   examWeek(
     code: 'exam_week',
     label: 'Sınav Haftası',
     tagline: 'Odak modu',
-    description: 'Akademik odak öne çıkar, diğer yükler mikro varyantlara iner.',
+    description:
+        'Akademik odak öne çıkar, diğer yükler mikro varyantlara iner.',
   ),
   overloaded(
     code: 'overloaded',

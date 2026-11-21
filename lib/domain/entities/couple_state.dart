@@ -1029,8 +1029,22 @@ final class CoupleState {
     return next == birthdayMessage ? this : copyWith(birthdayMessage: next);
   }
 
-  CoupleState addMessage(ChatMessage message) =>
-      copyWith(messages: <ChatMessage>[...messages, message]);
+  /// Yeni mesajı kronolojik sıraya ekler.
+  ///
+  /// Realtime gecikmesiyle eski zamanlı bir mesaj sonradan gelirse listenin
+  /// başına yerleşir; böylece "daha eski mesajları yükle" sınırı ve sohbet
+  /// sırası bozulmaz.
+  CoupleState addMessage(ChatMessage message) {
+    final List<ChatMessage> next = <ChatMessage>[...messages, message];
+    if (messages.isNotEmpty &&
+        messages.last.createdAt.isAfter(message.createdAt)) {
+      next.sort((ChatMessage a, ChatMessage b) {
+        final int byTime = a.createdAt.compareTo(b.createdAt);
+        return byTime != 0 ? byTime : a.id.compareTo(b.id);
+      });
+    }
+    return copyWith(messages: next);
+  }
 
   CoupleState toggleMessageLike(String messageId) => copyWith(
     messages: <ChatMessage>[

@@ -5,7 +5,11 @@ import 'verification.dart';
 
 /// Görevin hangi yaşam alanına ait olduğu.
 enum QuestCategory {
-  academic(code: 'academic', label: 'Akademik', defaultStat: StatKey.intelligence),
+  academic(
+    code: 'academic',
+    label: 'Akademik',
+    defaultStat: StatKey.intelligence,
+  ),
   physical(code: 'physical', label: 'Fiziksel', defaultStat: StatKey.strength),
   health(code: 'health', label: 'Sağlık', defaultStat: StatKey.vitality),
   career(code: 'career', label: 'Kariyer', defaultStat: StatKey.productivity),
@@ -32,7 +36,12 @@ enum QuestCategory {
 /// Görevin zorluk derecesi ve XP çarpanı.
 enum QuestDifficulty {
   light(code: 'light', label: 'Hafif', xpMultiplier: 1.0, etaLabel: '5-15 dk'),
-  moderate(code: 'moderate', label: 'Orta', xpMultiplier: 1.3, etaLabel: '20-45 dk'),
+  moderate(
+    code: 'moderate',
+    label: 'Orta',
+    xpMultiplier: 1.3,
+    etaLabel: '20-45 dk',
+  ),
   hard(code: 'hard', label: 'Zor', xpMultiplier: 1.6, etaLabel: '45-90 dk'),
   epic(code: 'epic', label: 'Destansı', xpMultiplier: 2.1, etaLabel: '90 dk+');
 
@@ -69,7 +78,8 @@ enum QuestStatus {
 
   final String label;
 
-  bool get isOpen => this == QuestStatus.active || this == QuestStatus.inProgress;
+  bool get isOpen =>
+      this == QuestStatus.active || this == QuestStatus.inProgress;
   bool get isDone => this == QuestStatus.completed;
 }
 
@@ -116,22 +126,22 @@ final class MicroVariant {
   final QuestVerification? verification;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'title': title,
-        'minutes': minutes,
-        'base_xp': baseXp,
-        if (summary != null) 'summary': summary,
-        if (verification != null) 'verification': verification!.toJson(),
-      };
+    'title': title,
+    'minutes': minutes,
+    'base_xp': baseXp,
+    if (summary != null) 'summary': summary,
+    if (verification != null) 'verification': verification!.toJson(),
+  };
 
   factory MicroVariant.fromJson(Map<String, dynamic> json) => MicroVariant(
-        title: JsonX.asString(json['title']),
-        minutes: JsonX.asInt(json['minutes'], fallback: 10),
-        baseXp: JsonX.asInt(json['base_xp'], fallback: 10),
-        summary: json['summary'] == null ? null : JsonX.asString(json['summary']),
-        verification: json['verification'] == null
-            ? null
-            : QuestVerification.fromJson(JsonX.asMap(json['verification'])),
-      );
+    title: JsonX.asString(json['title']),
+    minutes: JsonX.asInt(json['minutes'], fallback: 10),
+    baseXp: JsonX.asInt(json['base_xp'], fallback: 10),
+    summary: json['summary'] == null ? null : JsonX.asString(json['summary']),
+    verification: json['verification'] == null
+        ? null
+        : QuestVerification.fromJson(JsonX.asMap(json['verification'])),
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -143,7 +153,8 @@ final class MicroVariant {
       other.verification == verification;
 
   @override
-  int get hashCode => Object.hash(title, minutes, baseXp, summary, verification);
+  int get hashCode =>
+      Object.hash(title, minutes, baseXp, summary, verification);
 }
 
 /// Kullanıcıya sunulan tek bir görev (quest).
@@ -173,8 +184,8 @@ final class Quest {
     this.dueAt,
     this.completedAt,
     this.reflection,
-  })  : assert(baseXp >= 0, 'XP negatif olamaz'),
-        assert(estimatedMinutes > 0, 'Süre 0 olamaz');
+  }) : assert(baseXp >= 0, 'XP negatif olamaz'),
+       assert(estimatedMinutes > 0, 'Süre 0 olamaz');
 
   final String id;
   final String title;
@@ -230,7 +241,8 @@ final class Quest {
   String get effectiveSummary =>
       isMicro ? (microVariant!.summary ?? summary) : summary;
 
-  int get effectiveMinutes => isMicro ? microVariant!.minutes : estimatedMinutes;
+  int get effectiveMinutes =>
+      isMicro ? microVariant!.minutes : estimatedMinutes;
 
   int get effectiveBaseXp => isMicro ? microVariant!.baseXp : baseXp;
 
@@ -255,10 +267,10 @@ final class Quest {
   Quest start() => copyWith(status: QuestStatus.inProgress);
 
   Quest complete({required DateTime at, String? reflection}) => copyWith(
-        status: QuestStatus.completed,
-        completedAt: at,
-        reflection: reflection,
-      );
+    status: QuestStatus.completed,
+    completedAt: at,
+    reflection: reflection,
+  );
 
   Quest expire() => copyWith(status: QuestStatus.expired);
 
@@ -309,43 +321,48 @@ final class Quest {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'title': title,
-        'summary': summary,
-        'stat': stat.code,
-        'category': category.code,
-        'difficulty': difficulty.code,
-        'base_xp': baseXp,
-        'estimated_minutes': estimatedMinutes,
-        'verification': verification.toJson(),
-        'created_at': createdAt.toIso8601String(),
-        'status': status.name,
-        'cadence': cadence.code,
-        'energy_mode': energyMode.code,
-        'micro_variant': microVariant?.toJson(),
-        'questline_id': questlineId,
-        'tags': tags.toList(growable: false),
-        'streak_critical': streakCritical,
-        'due_at': dueAt?.toIso8601String(),
-        'completed_at': completedAt?.toIso8601String(),
-        'reflection': reflection,
-      };
+    'id': id,
+    'title': title,
+    'summary': summary,
+    'stat': stat.code,
+    'category': category.code,
+    'difficulty': difficulty.code,
+    'base_xp': baseXp,
+    'estimated_minutes': estimatedMinutes,
+    'verification': verification.toJson(),
+    'created_at': createdAt.toIso8601String(),
+    'status': status.name,
+    'cadence': cadence.code,
+    'energy_mode': energyMode.code,
+    'micro_variant': microVariant?.toJson(),
+    'questline_id': questlineId,
+    'tags': tags.toList(growable: false),
+    'streak_critical': streakCritical,
+    'due_at': dueAt?.toIso8601String(),
+    'completed_at': completedAt?.toIso8601String(),
+    'reflection': reflection,
+  };
 
   factory Quest.fromJson(Map<String, dynamic> json) {
-    final QuestCategory category =
-        QuestCategory.fromCode(JsonX.asString(json['category']));
+    final QuestCategory category = QuestCategory.fromCode(
+      JsonX.asString(json['category']),
+    );
     final int minutes = JsonX.asInt(json['estimated_minutes'], fallback: 15);
 
     return Quest(
       id: JsonX.asString(json['id']),
       title: JsonX.asString(json['title']),
       summary: JsonX.asString(json['summary']),
-      stat: StatKey.tryFromCode(JsonX.asString(json['stat'])) ?? category.defaultStat,
+      stat:
+          StatKey.tryFromCode(JsonX.asString(json['stat'])) ??
+          category.defaultStat,
       category: category,
       difficulty: QuestDifficulty.fromCode(JsonX.asString(json['difficulty'])),
       baseXp: JsonX.asInt(json['base_xp']),
       estimatedMinutes: minutes <= 0 ? 15 : minutes,
-      verification: QuestVerification.fromJson(JsonX.asMap(json['verification'])),
+      verification: QuestVerification.fromJson(
+        JsonX.asMap(json['verification']),
+      ),
       createdAt: JsonX.asDate(json['created_at']) ?? DateTime.now(),
       status: JsonX.asEnum<QuestStatus>(
         QuestStatus.values,
@@ -364,7 +381,9 @@ final class Quest {
       streakCritical: JsonX.asBool(json['streak_critical'], fallback: true),
       dueAt: JsonX.asDate(json['due_at']),
       completedAt: JsonX.asDate(json['completed_at']),
-      reflection: json['reflection'] == null ? null : JsonX.asString(json['reflection']),
+      reflection: json['reflection'] == null
+          ? null
+          : JsonX.asString(json['reflection']),
     );
   }
 
@@ -397,28 +416,29 @@ final class Quest {
 
   @override
   int get hashCode => Object.hash(
-        id,
-        title,
-        stat,
-        category,
-        difficulty,
-        baseXp,
-        estimatedMinutes,
-        verification,
-        createdAt,
-        status,
-        cadence,
-        energyMode,
-        microVariant,
-        questlineId,
-        Object.hashAllUnordered(tags),
-        streakCritical,
-        dueAt,
-        completedAt,
-        reflection,
-      );
+    id,
+    title,
+    stat,
+    category,
+    difficulty,
+    baseXp,
+    estimatedMinutes,
+    verification,
+    createdAt,
+    status,
+    cadence,
+    energyMode,
+    microVariant,
+    questlineId,
+    Object.hashAllUnordered(tags),
+    streakCritical,
+    dueAt,
+    completedAt,
+    reflection,
+  );
 
   @override
-  String toString() => 'Quest($id · $effectiveTitle · ${stat.code} · '
+  String toString() =>
+      'Quest($id · $effectiveTitle · ${stat.code} · '
       '$effectiveBaseXp XP · $effectiveMinutes dk · ${status.name})';
 }

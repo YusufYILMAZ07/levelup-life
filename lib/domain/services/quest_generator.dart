@@ -21,19 +21,22 @@ abstract final class QuestGenerator {
     int? count,
   }) {
     final int target = count ?? setup.dailyQuestTarget;
-    final double tempoFactor =
-        setup.isProfessional ? setup.workload.tempoFactor : 1.0;
+    final double tempoFactor = setup.isProfessional
+        ? setup.workload.tempoFactor
+        : 1.0;
     final int budget = (setup.tempo.minutes * tempoFactor).round();
 
     final List<_QuestTemplate> pool = _templates
-        .where((_QuestTemplate t) =>
-            t.goal == null || setup.goals.contains(t.goal))
+        .where(
+          (_QuestTemplate t) => t.goal == null || setup.goals.contains(t.goal),
+        )
         .toList(growable: false);
     final List<_QuestTemplate> affordable = pool
         .where((_QuestTemplate t) => t.minutes <= budget + 15)
         .toList(growable: false);
-    final List<_QuestTemplate> source =
-        affordable.length >= target ? affordable : pool;
+    final List<_QuestTemplate> source = affordable.length >= target
+        ? affordable
+        : pool;
 
     final List<_QuestTemplate> ordered = _rotate(source, _dayIndex(now));
     final List<_QuestTemplate> picked = <_QuestTemplate>[];
@@ -41,8 +44,10 @@ abstract final class QuestGenerator {
 
     // 1) Her seçilen hedef için bir görev (kapsama garantisi).
     for (final GoalType goal in setup.goals) {
-      final _QuestTemplate? template =
-          _firstWhere(ordered, (_QuestTemplate t) => t.goal == goal);
+      final _QuestTemplate? template = _firstWhere(
+        ordered,
+        (_QuestTemplate t) => t.goal == goal,
+      );
       if (template != null && usedIds.add(template.id)) {
         picked.add(template);
       }
@@ -115,13 +120,10 @@ abstract final class QuestGenerator {
     EnergyMode energyMode,
   ) {
     final String title = _fill(template.title, setup);
-    final int baseXp = XpEngine.applyMultipliers(
-      template.baseXp,
-      <double>[
-        if (template.goal != null && setup.focusStats.contains(template.stat))
-          1.1,
-      ],
-    );
+    final int baseXp = XpEngine.applyMultipliers(template.baseXp, <double>[
+      if (template.goal != null && setup.focusStats.contains(template.stat))
+        1.1,
+    ]);
 
     return Quest(
       id: 'q-${_dayKey(now)}-${template.id}',
@@ -155,19 +157,23 @@ abstract final class QuestGenerator {
   static QuestVerification _verification(_QuestTemplate template) {
     return switch (template.kind) {
       _VerifyKind.timer => QuestVerification.timer(minutes: template.minutes),
-      _VerifyKind.checklist =>
-        QuestVerification.checklist(items: template.checklist),
-      _VerifyKind.steps =>
-        QuestVerification.stepGoal(targetSteps: template.stepTarget),
-      _VerifyKind.reflection =>
-        QuestVerification.reflection(prompt: template.reflectionPrompt),
+      _VerifyKind.checklist => QuestVerification.checklist(
+        items: template.checklist,
+      ),
+      _VerifyKind.steps => QuestVerification.stepGoal(
+        targetSteps: template.stepTarget,
+      ),
+      _VerifyKind.reflection => QuestVerification.reflection(
+        prompt: template.reflectionPrompt,
+      ),
       _VerifyKind.manual => QuestVerification.manual(),
     };
   }
 
   static String _fill(String template, UserSetup setup) {
-    final String name =
-        setup.displayName.trim().isEmpty ? 'Gezgin' : setup.displayName.trim();
+    final String name = setup.displayName.trim().isEmpty
+        ? 'Gezgin'
+        : setup.displayName.trim();
     return template
         .replaceAll('{field}', setup.personalizationLabel)
         .replaceAll('{name}', name)
@@ -186,25 +192,20 @@ abstract final class QuestGenerator {
     return QuestCategory.mind;
   }
 
-  static int _dayIndex(DateTime now) => DateTime(now.year, now.month, now.day)
-      .difference(DateTime(2026, 1, 1))
-      .inDays
-      .abs();
+  static int _dayIndex(DateTime now) => DateTime(
+    now.year,
+    now.month,
+    now.day,
+  ).difference(DateTime(2026, 1, 1)).inDays.abs();
 
   static String _dayKey(DateTime now) =>
       '${now.year}${now.month.toString().padLeft(2, '0')}'
       '${now.day.toString().padLeft(2, '0')}';
 
-  static List<_QuestTemplate> _rotate(
-    List<_QuestTemplate> source,
-    int offset,
-  ) {
+  static List<_QuestTemplate> _rotate(List<_QuestTemplate> source, int offset) {
     if (source.isEmpty) return source;
     final int start = offset % source.length;
-    return <_QuestTemplate>[
-      ...source.skip(start),
-      ...source.take(start),
-    ];
+    return <_QuestTemplate>[...source.skip(start), ...source.take(start)];
   }
 
   static _QuestTemplate? _firstWhere(
@@ -235,7 +236,8 @@ abstract final class QuestGenerator {
     _QuestTemplate(
       id: 'core-walk',
       title: '20 dakika tempolu yürüyüşe çık',
-      summary: 'Telefonu cebinde tut, tempo yüksek olsun. Güne hareketle başla.',
+      summary:
+          'Telefonu cebinde tut, tempo yüksek olsun. Güne hareketle başla.',
       stat: StatKey.vitality,
       category: QuestCategory.health,
       difficulty: QuestDifficulty.light,
@@ -246,7 +248,8 @@ abstract final class QuestGenerator {
     _QuestTemplate(
       id: 'core-water',
       title: '2 litre su iç',
-      summary: 'Şişeni doldur; öğlene kadar yarısını, akşama kadar tamamını bitir.',
+      summary:
+          'Şişeni doldur; öğlene kadar yarısını, akşama kadar tamamını bitir.',
       stat: StatKey.vitality,
       category: QuestCategory.health,
       difficulty: QuestDifficulty.light,
@@ -257,7 +260,8 @@ abstract final class QuestGenerator {
     _QuestTemplate(
       id: 'core-sleep',
       title: '23:30\'da telefonu bırak',
-      summary: 'Ekranı kapat, 10 dakika oku ve yatağa geç. Yarın daha güçlü kalk.',
+      summary:
+          'Ekranı kapat, 10 dakika oku ve yatağa geç. Yarın daha güçlü kalk.',
       stat: StatKey.willpower,
       category: QuestCategory.mind,
       difficulty: QuestDifficulty.light,
@@ -307,7 +311,8 @@ abstract final class QuestGenerator {
       id: 'career-reading',
       goal: GoalType.career,
       title: '{field} alanında 1 teknik makale oku',
-      summary: 'Okurken 3 madde not çıkar; yarın işine yarayacak tek fikri seç.',
+      summary:
+          'Okurken 3 madde not çıkar; yarın işine yarayacak tek fikri seç.',
       stat: StatKey.intelligence,
       category: QuestCategory.career,
       difficulty: QuestDifficulty.light,
@@ -321,7 +326,8 @@ abstract final class QuestGenerator {
       id: 'career-interview',
       goal: GoalType.career,
       title: '1 mülakat sorusu çöz ve cevabını yaz',
-      summary: 'Sesli düşün: soruyu anlat, yaklaşımını kur, kenar durumları say.',
+      summary:
+          'Sesli düşün: soruyu anlat, yaklaşımını kur, kenar durumları say.',
       stat: StatKey.productivity,
       category: QuestCategory.career,
       difficulty: QuestDifficulty.light,
@@ -335,7 +341,8 @@ abstract final class QuestGenerator {
       id: 'career-network',
       goal: GoalType.career,
       title: 'LinkedIn profilini güncelle, 3 kişiyle etkileşim kur',
-      summary: 'Başlığını netleştir; sektöründen 3 kişiye anlamlı bir yorum yaz.',
+      summary:
+          'Başlığını netleştir; sektöründen 3 kişiye anlamlı bir yorum yaz.',
       stat: StatKey.productivity,
       category: QuestCategory.career,
       difficulty: QuestDifficulty.light,
@@ -461,7 +468,8 @@ abstract final class QuestGenerator {
       id: 'fitness-plank',
       goal: GoalType.fitness,
       title: '3 set plank + 20 squat',
-      summary: 'Plank 45 saniye, squat 10 tekrar. Setler arası 60 saniye dinlen.',
+      summary:
+          'Plank 45 saniye, squat 10 tekrar. Setler arası 60 saniye dinlen.',
       stat: StatKey.strength,
       category: QuestCategory.physical,
       difficulty: QuestDifficulty.light,

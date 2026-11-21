@@ -10,9 +10,8 @@ import '../widgets/section_header.dart';
 
 /// Doğum günü deneyimini açar.
 ///
-/// Tarih [BirthdayConfig.ceyda] ile eşleştiğinde Bugün sekmesindeki banner
-/// otomatik kutlama moduna geçer; banner her zaman dokunulabilir olduğu için
-/// sürpriz istenen gün yaşanabilir.
+/// Bugün sekmesindeki banner en yakın özel günü otomatik vurgular; bu modal
+/// dört tarihi canlı geri sayımla listeler ve Ceyda'nın mektubunu gösterir.
 Future<void> showBirthdayExperience(BuildContext context) {
   return showDialog<void>(
     context: context,
@@ -61,6 +60,8 @@ class BirthdayModal extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
+                        _SpecialDateList(now: at),
+                        const SizedBox(height: AppSpacing.lg),
                         Text(
                           'Sevgili Ceyda,',
                           style: AppTypography.title.copyWith(
@@ -166,13 +167,114 @@ class BirthdayModal extends ConsumerWidget {
   }
 }
 
+class _SpecialDateList extends StatelessWidget {
+  const _SpecialDateList({required this.now});
+
+  final DateTime now;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<SpecialDate> dates = CoupleSpecialDates.sorted(now);
+    final SpecialDate nearest = CoupleSpecialDates.next(now);
+    return Container(
+      key: const Key('special-date-list'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: AppRadii.mdAll,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'ÖZEL GÜNLERİMİZ',
+            style: AppTypography.label.copyWith(
+              color: AppColors.textTertiary,
+              fontSize: 10,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          for (final SpecialDate date in dates)
+            _SpecialDateRow(
+              key: Key('special-date-${date.id}'),
+              date: date,
+              now: now,
+              highlighted: date.id == nearest.id,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpecialDateRow extends StatelessWidget {
+  const _SpecialDateRow({
+    required this.date,
+    required this.now,
+    required this.highlighted,
+    super.key,
+  });
+
+  final SpecialDate date;
+  final DateTime now;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color accent = date.partnerId == null
+        ? AppColors.streak
+        : CouplePalette.colorOf(date.partnerId!);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: <Widget>[
+          Text(date.emoji, style: const TextStyle(fontSize: 15)),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              '${date.title} · ${date.dateLabel}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: highlighted ? FontWeight.w800 : FontWeight.w600,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xs + 1,
+              vertical: 2,
+            ),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: highlighted ? 0.15 : 0.07),
+              borderRadius: AppRadii.pillAll,
+            ),
+            child: Text(
+              date.countdownLabel(now),
+              style: AppTypography.caption.copyWith(
+                color: accent,
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _BirthdayLetter extends ConsumerWidget {
   const _BirthdayLetter({required this.message});
 
   final String message;
 
   Future<void> _edit(BuildContext context, WidgetRef ref) async {
-    final TextEditingController controller = TextEditingController(text: message);
+    final TextEditingController controller = TextEditingController(
+      text: message,
+    );
     final String? next = await showDialog<String>(
       context: context,
       builder: (BuildContext dialogContext) {
@@ -215,9 +317,7 @@ class _BirthdayLetter extends ConsumerWidget {
       decoration: BoxDecoration(
         color: CouplePalette.ceyda.withValues(alpha: 0.07),
         borderRadius: AppRadii.mdAll,
-        border: Border.all(
-          color: CouplePalette.ceyda.withValues(alpha: 0.28),
-        ),
+        border: Border.all(color: CouplePalette.ceyda.withValues(alpha: 0.28)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -267,9 +367,7 @@ class _BirthdayBucketList extends ConsumerWidget {
       decoration: BoxDecoration(
         color: CouplePalette.yusuf.withValues(alpha: 0.05),
         borderRadius: AppRadii.mdAll,
-        border: Border.all(
-          color: CouplePalette.yusuf.withValues(alpha: 0.22),
-        ),
+        border: Border.all(color: CouplePalette.yusuf.withValues(alpha: 0.22)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

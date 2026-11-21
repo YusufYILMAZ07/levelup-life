@@ -53,8 +53,9 @@ void main() {
     });
 
     test('geçmişe dönük tamamlama seriyi bozmaz', () {
-      final Streak streak =
-          Streak.empty.registerActivity(day3).registerActivity(day1);
+      final Streak streak = Streak.empty
+          .registerActivity(day3)
+          .registerActivity(day1);
 
       expect(streak.currentDays, 1);
       expect(streak.lastActiveDay, DateX.dateOnly(day3));
@@ -97,29 +98,37 @@ void main() {
     });
 
     test('dondurma hakkı harcar, seri sayısını artırmaz', () {
-      final Streak streak =
-          Streak.empty.registerActivity(day1).registerActivity(day2);
+      final Streak streak = Streak.empty
+          .registerActivity(day1)
+          .registerActivity(day2);
       final DateTime now = DateTime(2026, 11, 13, 9);
       final Streak frozen = streak.freezeMissedDay(now);
 
       expect(frozen.freezeTokens, streak.freezeTokens - 1);
       expect(frozen.currentDays, streak.currentDays);
-      expect(frozen.lastActiveDay, DateX.dateOnly(now).subtract(const Duration(days: 1)));
+      expect(
+        frozen.lastActiveDay,
+        DateX.dateOnly(now).subtract(const Duration(days: 1)),
+      );
     });
 
     test('dondurulmuş günün ardından seri devam eder', () {
-      final Streak streak =
-          Streak.empty.registerActivity(day1).registerActivity(day2);
+      final Streak streak = Streak.empty
+          .registerActivity(day1)
+          .registerActivity(day2);
       final DateTime now = DateTime(2026, 11, 13, 9);
-      final Streak continued = streak.freezeMissedDay(now).registerActivity(now);
+      final Streak continued = streak
+          .freezeMissedDay(now)
+          .registerActivity(now);
 
       expect(continued.currentDays, 3);
       expect(continued.totalActiveDays, 3);
     });
 
     test('hak yoksa dondurma çalışmaz', () {
-      final Streak streak =
-          Streak.empty.registerActivity(day1).copyWith(freezeTokens: 0);
+      final Streak streak = Streak.empty
+          .registerActivity(day1)
+          .copyWith(freezeTokens: 0);
       final DateTime now = DateTime(2026, 11, 13, 9);
 
       expect(streak.freezeMissedDay(now), streak);

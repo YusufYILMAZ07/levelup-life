@@ -26,8 +26,10 @@ void main() {
     });
 
     test('gün 00:00\'a normalize edilir', () {
-      final DailyXpLog log =
-          DailyXpLog.empty.record(at: DateTime(2026, 11, 15, 23, 59), xp: 10);
+      final DailyXpLog log = DailyXpLog.empty.record(
+        at: DateTime(2026, 11, 15, 23, 59),
+        xp: 10,
+      );
 
       expect(log.byDay.keys.single, DateTime(2026, 11, 15));
     });
@@ -148,10 +150,10 @@ void main() {
       });
 
       expect(log.totalXp, 60);
-      expect(log.byDay.keys, containsAll(<DateTime>[
-        DateTime(2026, 11, 15),
-        DateTime(2026, 11, 13),
-      ]));
+      expect(
+        log.byDay.keys,
+        containsAll(<DateTime>[DateTime(2026, 11, 15), DateTime(2026, 11, 13)]),
+      );
       expect(log.isActiveOn(DateTime(2026, 11, 14)), isFalse);
     });
 

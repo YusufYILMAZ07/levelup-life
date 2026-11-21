@@ -16,8 +16,10 @@ void main() {
 
   group('dailyQuests', () {
     test('günlük hedef kadar görev üretir ve id\'ler benzersizdir', () {
-      final List<Quest> quests =
-          QuestGenerator.dailyQuests(setup: softwareStudent, now: now);
+      final List<Quest> quests = QuestGenerator.dailyQuests(
+        setup: softwareStudent,
+        now: now,
+      );
 
       expect(quests, hasLength(softwareStudent.dailyQuestTarget));
       expect(
@@ -28,8 +30,10 @@ void main() {
     });
 
     test('yalnızca seçilen hedeflere ve evrensel şablonlara ait görevler', () {
-      final List<Quest> quests =
-          QuestGenerator.dailyQuests(setup: softwareStudent, now: now);
+      final List<Quest> quests = QuestGenerator.dailyQuests(
+        setup: softwareStudent,
+        now: now,
+      );
       final Set<String> allowed = <String>{'fitness', 'career', 'core'};
 
       for (final Quest quest in quests) {
@@ -66,8 +70,9 @@ void main() {
         now: now,
         count: 2,
       );
-      final Set<String> goals =
-          quests.map((Quest quest) => quest.tags.first).toSet();
+      final Set<String> goals = quests
+          .map((Quest quest) => quest.tags.first)
+          .toSet();
       expect(goals, containsAll(<String>['fitness', 'career']));
     });
 
@@ -94,8 +99,10 @@ void main() {
     });
 
     test('aynı gün için deterministik, farklı gün için döner', () {
-      final List<Quest> first =
-          QuestGenerator.dailyQuests(setup: softwareStudent, now: now);
+      final List<Quest> first = QuestGenerator.dailyQuests(
+        setup: softwareStudent,
+        now: now,
+      );
       final List<Quest> second = QuestGenerator.dailyQuests(
         setup: softwareStudent,
         now: now.add(const Duration(hours: 3)),
@@ -126,8 +133,9 @@ void main() {
         quests.every((Quest quest) => quest.energyMode == EnergyMode.lowEnergy),
         isTrue,
       );
-      final Iterable<Quest> withMicro =
-          quests.where((Quest quest) => quest.microVariant != null);
+      final Iterable<Quest> withMicro = quests.where(
+        (Quest quest) => quest.microVariant != null,
+      );
       expect(withMicro, isNotEmpty);
       expect(withMicro.every((Quest quest) => quest.isMicro), isTrue);
       expect(withMicro.first.effectiveMinutes, 10);
@@ -138,8 +146,10 @@ void main() {
         displayName: 'Gezgin',
         tempo: DailyTempo.relaxed,
       );
-      final List<Quest> quests =
-          QuestGenerator.dailyQuests(setup: emptyGoals, now: now);
+      final List<Quest> quests = QuestGenerator.dailyQuests(
+        setup: emptyGoals,
+        now: now,
+      );
 
       expect(quests, hasLength(2));
       expect(quests.every((Quest quest) => quest.tags.first == 'core'), isTrue);

@@ -63,110 +63,114 @@ class LiveCoupleNowCard extends ConsumerWidget {
     final DateTime at = now ?? DateTime.now();
     final FreeWindow? free = couple.longestSharedFreeWindowForDay(at.weekday);
 
-    return SoftCard(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        AppSpacing.md,
-        AppSpacing.lg,
-        AppSpacing.sm,
-      ),
-      gradient: AppGradients.aura(CouplePalette.ceyda, peakOpacity: 0.10),
-      borderColor: CouplePalette.ceyda.withValues(alpha: 0.18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: AppColors.success,
-                  shape: BoxShape.circle,
+    return RepaintBoundary(
+      child: SoftCard(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.sm,
+        ),
+        gradient: AppGradients.aura(CouplePalette.ceyda, peakOpacity: 0.10),
+        borderColor: CouplePalette.ceyda.withValues(alpha: 0.18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: AppColors.success,
+                    shape: BoxShape.circle,
+                  ),
                 ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'Şu Anda İkimiz',
+                    style: AppTypography.subtitle.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                InfoPill(
+                  label: free == null
+                      ? 'Ortak boşluk yok'
+                      : 'Ortak boşluk ${free.durationLabel}',
+                  color: CouplePalette.ceyda,
+                  icon: Icons.favorite_rounded,
+                  dense: true,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Expanded(
+                    child: _PartnerNowPanel(
+                      partnerId: CouplePartner.yusufId,
+                      now: at,
+                      active: couple.currentBlockFor(CouplePartner.yusufId, at),
+                      next: couple.nextBlockFor(CouplePartner.yusufId, at),
+                      liveStatus: couple.liveStatusOf(CouplePartner.yusufId),
+                      onComplete: (ScheduleBlock block) =>
+                          _complete(context, ref, block),
+                      onProof: () =>
+                          _sendProof(context, ref, CouplePartner.yusufId),
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
+                    color: AppColors.border,
+                  ),
+                  Expanded(
+                    child: _PartnerNowPanel(
+                      partnerId: CouplePartner.ceydaId,
+                      now: at,
+                      active: couple.currentBlockFor(CouplePartner.ceydaId, at),
+                      next: couple.nextBlockFor(CouplePartner.ceydaId, at),
+                      liveStatus: couple.liveStatusOf(CouplePartner.ceydaId),
+                      onComplete: (ScheduleBlock block) =>
+                          _complete(context, ref, block),
+                      onProof: () =>
+                          _sendProof(context, ref, CouplePartner.ceydaId),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Text(
-                  'Şu Anda İkimiz',
-                  style: AppTypography.subtitle.copyWith(
-                    color: AppColors.textPrimary,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            _SharedFreePill(window: free),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                key: const Key('open-weekly-plan'),
+                onPressed: () =>
+                    ref.read(shellTabProvider.notifier).goToDevelopment(),
+                icon: const Icon(Icons.calendar_month_rounded, size: 15),
+                label: const Text('Tüm Haftalık Planı Gör'),
+                style: TextButton.styleFrom(
+                  foregroundColor: CouplePalette.ceyda,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.xs,
+                  ),
+                  textStyle: AppTypography.caption.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
-              InfoPill(
-                label: free == null
-                    ? 'Ortak boşluk yok'
-                    : 'Ortak boşluk ${free.durationLabel}',
-                color: CouplePalette.ceyda,
-                icon: Icons.favorite_rounded,
-                dense: true,
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Expanded(
-                  child: _PartnerNowPanel(
-                    partnerId: CouplePartner.yusufId,
-                    now: at,
-                    active: couple.currentBlockFor(CouplePartner.yusufId, at),
-                    next: couple.nextBlockFor(CouplePartner.yusufId, at),
-                    liveStatus: couple.liveStatusOf(CouplePartner.yusufId),
-                    onComplete: (ScheduleBlock block) =>
-                        _complete(context, ref, block),
-                    onProof: () =>
-                        _sendProof(context, ref, CouplePartner.yusufId),
-                  ),
-                ),
-                Container(
-                  width: 1,
-                  margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                  color: AppColors.border,
-                ),
-                Expanded(
-                  child: _PartnerNowPanel(
-                    partnerId: CouplePartner.ceydaId,
-                    now: at,
-                    active: couple.currentBlockFor(CouplePartner.ceydaId, at),
-                    next: couple.nextBlockFor(CouplePartner.ceydaId, at),
-                    liveStatus: couple.liveStatusOf(CouplePartner.ceydaId),
-                    onComplete: (ScheduleBlock block) =>
-                        _complete(context, ref, block),
-                    onProof: () =>
-                        _sendProof(context, ref, CouplePartner.ceydaId),
-                  ),
-                ),
-              ],
             ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          _SharedFreePill(window: free),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              key: const Key('open-weekly-plan'),
-              onPressed: () =>
-                  ref.read(shellTabProvider.notifier).goToDevelopment(),
-              icon: const Icon(Icons.calendar_month_rounded, size: 15),
-              label: const Text('Tüm Haftalık Planı Gör'),
-              style: TextButton.styleFrom(
-                foregroundColor: CouplePalette.ceyda,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.xs,
-                ),
-                textStyle: AppTypography.caption.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

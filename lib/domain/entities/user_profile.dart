@@ -15,7 +15,11 @@ import 'streak.dart';
 /// Rol; görev havuzunun ağırlığını belirler (öğrenci → akademik ağırlıklı,
 /// çalışan → kariyer ağırlıklı) ama statları kilitlemez.
 enum LifeRole {
-  student(code: 'student', label: 'Üniversite Öğrencisi', tagline: 'Sınavlar, bölümler, öğrenme.'),
+  student(
+    code: 'student',
+    label: 'Üniversite Öğrencisi',
+    tagline: 'Sınavlar, bölümler, öğrenme.',
+  ),
   highSchool(
     code: 'high_school',
     label: 'Lise Öğrencisi',
@@ -26,11 +30,27 @@ enum LifeRole {
     label: 'Sınav Hazırlığı',
     tagline: 'Tek hedef: hedeflediğin sınavı kazanmak.',
   ),
-  employee(code: 'employee', label: 'Çalışan / Profesyonel', tagline: 'Kariyer, odak, iş-yaşam dengesi.'),
-  freelancer(code: 'freelancer', label: 'Serbest Çalışan', tagline: 'Portfolyo, teslimat, müşteri.'),
-  explorer(code: 'explorer', label: 'Keşifte', tagline: 'Yön arıyorum, deniyorum.');
+  employee(
+    code: 'employee',
+    label: 'Çalışan / Profesyonel',
+    tagline: 'Kariyer, odak, iş-yaşam dengesi.',
+  ),
+  freelancer(
+    code: 'freelancer',
+    label: 'Serbest Çalışan',
+    tagline: 'Portfolyo, teslimat, müşteri.',
+  ),
+  explorer(
+    code: 'explorer',
+    label: 'Keşifte',
+    tagline: 'Yön arıyorum, deniyorum.',
+  );
 
-  const LifeRole({required this.code, required this.label, required this.tagline});
+  const LifeRole({
+    required this.code,
+    required this.label,
+    required this.tagline,
+  });
 
   final String code;
   final String label;
@@ -38,7 +58,9 @@ enum LifeRole {
 
   /// Bölüm/sınıf soruları gösterilsin mi?
   bool get isStudentRole =>
-      this == LifeRole.student || this == LifeRole.highSchool || this == LifeRole.examPrep;
+      this == LifeRole.student ||
+      this == LifeRole.highSchool ||
+      this == LifeRole.examPrep;
 
   /// Sektör/yoğunluk soruları gösterilsin mi?
   bool get isProfessionalRole =>
@@ -46,13 +68,16 @@ enum LifeRole {
 
   /// Bu rol için görev havuzunda öne çıkacak kategoriler.
   List<StatKey> get weightedStats => switch (this) {
-        LifeRole.student => <StatKey>[StatKey.intelligence, StatKey.willpower],
-        LifeRole.highSchool => <StatKey>[StatKey.intelligence, StatKey.willpower],
-        LifeRole.examPrep => <StatKey>[StatKey.intelligence, StatKey.willpower],
-        LifeRole.employee => <StatKey>[StatKey.productivity, StatKey.vitality],
-        LifeRole.freelancer => <StatKey>[StatKey.productivity, StatKey.intelligence],
-        LifeRole.explorer => <StatKey>[StatKey.vitality, StatKey.willpower],
-      };
+    LifeRole.student => <StatKey>[StatKey.intelligence, StatKey.willpower],
+    LifeRole.highSchool => <StatKey>[StatKey.intelligence, StatKey.willpower],
+    LifeRole.examPrep => <StatKey>[StatKey.intelligence, StatKey.willpower],
+    LifeRole.employee => <StatKey>[StatKey.productivity, StatKey.vitality],
+    LifeRole.freelancer => <StatKey>[
+      StatKey.productivity,
+      StatKey.intelligence,
+    ],
+    LifeRole.explorer => <StatKey>[StatKey.vitality, StatKey.willpower],
+  };
 
   static LifeRole fromCode(String? code) {
     for (final LifeRole role in values) {
@@ -217,24 +242,21 @@ final class UserProfile {
   UserProfile withEnergyMode(EnergyMode mode) =>
       energyMode == mode ? this : copyWith(energyMode: mode);
 
-  UserProfile withFocusStats(Set<StatKey> stats) => copyWith(
-        focusStats: stats,
-        archetype: Archetype.recommend(stats),
-      );
+  UserProfile withFocusStats(Set<StatKey> stats) =>
+      copyWith(focusStats: stats, archetype: Archetype.recommend(stats));
 
   UserProfile completeOnboarding({
     required LifeRole role,
     required Set<StatKey> focusStats,
     Archetype? archetype,
     int? dailyQuestTarget,
-  }) =>
-      copyWith(
-        role: role,
-        focusStats: focusStats,
-        archetype: archetype ?? Archetype.recommend(focusStats),
-        dailyQuestTarget: dailyQuestTarget,
-        onboardingCompleted: true,
-      );
+  }) => copyWith(
+    role: role,
+    focusStats: focusStats,
+    archetype: archetype ?? Archetype.recommend(focusStats),
+    dailyQuestTarget: dailyQuestTarget,
+    onboardingCompleted: true,
+  );
 
   UserProfile copyWith({
     String? displayName,
@@ -311,47 +333,45 @@ final class UserProfile {
   // ── Serileştirme ─────────────────────────────────────────────────────────
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'display_name': displayName,
-        'role': role.code,
-        'archetype': archetype.code,
-        'created_at': createdAt.toIso8601String(),
-        'focus_stats': <String>[for (final StatKey stat in focusStats) stat.code],
-        'energy_mode': energyMode.code,
-        'total_xp': totalXp,
-        'rpg_stats': rpgStats.toJson(),
-        'streak': streak.toJson(),
-        'xp_log': xpLog.toJson(),
-        'daily_quest_target': dailyQuestTarget,
-        'reminders_enabled': remindersEnabled,
-        'onboarding_completed': onboardingCompleted,
-        'last_active_at': lastActiveAt?.toIso8601String(),
-        'avatar_seed': avatarSeed,
-      };
+    'id': id,
+    'display_name': displayName,
+    'role': role.code,
+    'archetype': archetype.code,
+    'created_at': createdAt.toIso8601String(),
+    'focus_stats': <String>[for (final StatKey stat in focusStats) stat.code],
+    'energy_mode': energyMode.code,
+    'total_xp': totalXp,
+    'rpg_stats': rpgStats.toJson(),
+    'streak': streak.toJson(),
+    'xp_log': xpLog.toJson(),
+    'daily_quest_target': dailyQuestTarget,
+    'reminders_enabled': remindersEnabled,
+    'onboarding_completed': onboardingCompleted,
+    'last_active_at': lastActiveAt?.toIso8601String(),
+    'avatar_seed': avatarSeed,
+  };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
-        id: JsonX.asString(json['id']),
-        displayName: JsonX.asString(json['display_name'], fallback: 'Gezgin'),
-        role: LifeRole.fromCode(JsonX.asString(json['role'])),
-        archetype: Archetype.fromCode(JsonX.asString(json['archetype'])),
-        createdAt: JsonX.asDate(json['created_at']) ?? DateTime.now(),
-        focusStats: _parseFocusStats(json['focus_stats']),
-        energyMode: EnergyMode.fromCode(JsonX.asString(json['energy_mode'])),
-        totalXp: JsonX.asInt(json['total_xp']),
-        rpgStats: RpgStats.fromJson(JsonX.asMap(json['rpg_stats'])),
-        streak: Streak.fromJson(JsonX.asMap(json['streak'])),
-        xpLog: DailyXpLog.fromJson(JsonX.asMap(json['xp_log'])),
-        dailyQuestTarget: JsonX
-            .asInt(
-              json['daily_quest_target'],
-              fallback: defaultDailyQuestTarget,
-            )
-            .clamp(minDailyQuestTarget, maxDailyQuestTarget),
-        remindersEnabled: JsonX.asBool(json['reminders_enabled'], fallback: true),
-        onboardingCompleted: JsonX.asBool(json['onboarding_completed']),
-        lastActiveAt: JsonX.asDate(json['last_active_at']),
-        avatarSeed: JsonX.asInt(json['avatar_seed']),
-      );
+    id: JsonX.asString(json['id']),
+    displayName: JsonX.asString(json['display_name'], fallback: 'Gezgin'),
+    role: LifeRole.fromCode(JsonX.asString(json['role'])),
+    archetype: Archetype.fromCode(JsonX.asString(json['archetype'])),
+    createdAt: JsonX.asDate(json['created_at']) ?? DateTime.now(),
+    focusStats: _parseFocusStats(json['focus_stats']),
+    energyMode: EnergyMode.fromCode(JsonX.asString(json['energy_mode'])),
+    totalXp: JsonX.asInt(json['total_xp']),
+    rpgStats: RpgStats.fromJson(JsonX.asMap(json['rpg_stats'])),
+    streak: Streak.fromJson(JsonX.asMap(json['streak'])),
+    xpLog: DailyXpLog.fromJson(JsonX.asMap(json['xp_log'])),
+    dailyQuestTarget: JsonX.asInt(
+      json['daily_quest_target'],
+      fallback: defaultDailyQuestTarget,
+    ).clamp(minDailyQuestTarget, maxDailyQuestTarget),
+    remindersEnabled: JsonX.asBool(json['reminders_enabled'], fallback: true),
+    onboardingCompleted: JsonX.asBool(json['onboarding_completed']),
+    lastActiveAt: JsonX.asDate(json['last_active_at']),
+    avatarSeed: JsonX.asInt(json['avatar_seed']),
+  );
 
   static Set<StatKey> _parseFocusStats(Object? raw) {
     final Set<StatKey> result = <StatKey>{};
@@ -387,26 +407,26 @@ final class UserProfile {
 
   @override
   int get hashCode => Object.hash(
-        id,
-        displayName,
-        role,
-        archetype,
-        createdAt,
-        Object.hashAllUnordered(focusStats),
-        energyMode,
-        totalXp,
-        rpgStats,
-        streak,
-        xpLog,
-        dailyQuestTarget,
-        remindersEnabled,
-        onboardingCompleted,
-        lastActiveAt,
-        avatarSeed,
-      );
+    id,
+    displayName,
+    role,
+    archetype,
+    createdAt,
+    Object.hashAllUnordered(focusStats),
+    energyMode,
+    totalXp,
+    rpgStats,
+    streak,
+    xpLog,
+    dailyQuestTarget,
+    remindersEnabled,
+    onboardingCompleted,
+    lastActiveAt,
+    avatarSeed,
+  );
 
   @override
-  String toString() => 'UserProfile($displayName · Lv$levelNumber · '
+  String toString() =>
+      'UserProfile($displayName · Lv$levelNumber · '
       '$titleLabel · $totalXp XP · ${streak.currentDays} gün seri)';
 }
-

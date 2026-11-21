@@ -77,10 +77,13 @@ class _XpBarState extends State<XpBar> with SingleTickerProviderStateMixin {
           height: widget.height,
           child: LayoutBuilder(
             builder: (BuildContext context, BoxConstraints constraints) {
-              final double fillWidth =
-                  (constraints.maxWidth * value).clamp(0.0, constraints.maxWidth);
-              final BorderRadius radius =
-                  BorderRadius.circular(widget.height / 2);
+              final double fillWidth = (constraints.maxWidth * value).clamp(
+                0.0,
+                constraints.maxWidth,
+              );
+              final BorderRadius radius = BorderRadius.circular(
+                widget.height / 2,
+              );
               return Stack(
                 clipBehavior: Clip.none,
                 children: <Widget>[
@@ -133,8 +136,9 @@ class _XpBarState extends State<XpBar> with SingleTickerProviderStateMixin {
                                     bottom: 0,
                                     width: fillWidth * 0.55,
                                     child: const DecoratedBox(
-                                      decoration:
-                                          BoxDecoration(gradient: AppGradients.sheen),
+                                      decoration: BoxDecoration(
+                                        gradient: AppGradients.sheen,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -189,8 +193,9 @@ class XpSummaryLabels extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color primary =
-        onDark ? AppColors.textOnAccent : (accent ?? AppColors.textPrimary);
+    final Color primary = onDark
+        ? AppColors.textOnAccent
+        : (accent ?? AppColors.textPrimary);
     final Color secondary = onDark
         ? AppColors.textOnAccent.withValues(alpha: 0.75)
         : AppColors.textTertiary;

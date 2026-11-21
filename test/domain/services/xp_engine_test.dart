@@ -10,9 +10,11 @@ void main() {
     });
 
     test('eğri monoton artar (hiçbir seviye öncekinden ucuz değil)', () {
-      for (int level = AppConstants.minLevel;
-          level < AppConstants.maxLevel;
-          level++) {
+      for (
+        int level = AppConstants.minLevel;
+        level < AppConstants.maxLevel;
+        level++
+      ) {
         expect(
           XpEngine.xpForLevel(level + 1),
           greaterThanOrEqualTo(XpEngine.xpForLevel(level)),
@@ -22,18 +24,18 @@ void main() {
     });
 
     test('tüm değerler 5\'in katı (UI temiz sayı gösterir)', () {
-      for (int level = AppConstants.minLevel;
-          level < AppConstants.maxLevel;
-          level++) {
+      for (
+        int level = AppConstants.minLevel;
+        level < AppConstants.maxLevel;
+        level++
+      ) {
         expect(XpEngine.xpForLevel(level) % 5, 0);
       }
     });
 
     test('soft cap sonrası büyüme yavaşlar', () {
-      final int midGrowth =
-          XpEngine.xpForLevel(45) - XpEngine.xpForLevel(44);
-      final int lateGrowth =
-          XpEngine.xpForLevel(90) - XpEngine.xpForLevel(89);
+      final int midGrowth = XpEngine.xpForLevel(45) - XpEngine.xpForLevel(44);
+      final int lateGrowth = XpEngine.xpForLevel(90) - XpEngine.xpForLevel(89);
       expect(lateGrowth, lessThan(midGrowth));
     });
 
@@ -85,8 +87,9 @@ void main() {
     });
 
     test('max seviyede fraction 1.0 ve kalan XP 0', () {
-      final LevelProgress progress =
-          XpEngine.progressForTotalXp(XpEngine.maxTotalXp + 5000);
+      final LevelProgress progress = XpEngine.progressForTotalXp(
+        XpEngine.maxTotalXp + 5000,
+      );
 
       expect(progress.level, AppConstants.maxLevel);
       expect(progress.isMaxLevel, isTrue);

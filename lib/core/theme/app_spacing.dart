@@ -44,5 +44,7 @@ abstract final class AppRadii {
   static const BorderRadius pillAll = BorderRadius.all(Radius.circular(pill));
 
   /// Modal / bottom sheet için sadece üst köşeler.
-  static const BorderRadius sheet = BorderRadius.vertical(top: Radius.circular(xl));
+  static const BorderRadius sheet = BorderRadius.vertical(
+    top: Radius.circular(xl),
+  );
 }

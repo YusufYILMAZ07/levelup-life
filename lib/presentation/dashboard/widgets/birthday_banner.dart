@@ -19,13 +19,17 @@ class BirthdayBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final DateTime at = now ?? DateTime.now();
-    final bool today = BirthdayConfig.ceyda.isToday(at);
-    final int daysLeft = BirthdayConfig.ceyda.daysUntil(at);
+    final SpecialDate next = CoupleSpecialDates.next(at);
+    final bool today = next.isToday(at);
+    final Color accent = next.partnerId == null
+        ? AppColors.streak
+        : CouplePalette.colorOf(next.partnerId!);
 
     return SoftCard(
+      key: const Key('special-date-banner'),
       onTap: () => showBirthdayExperience(context),
-      gradient: AppGradients.aura(CouplePalette.ceyda, peakOpacity: 0.14),
-      borderColor: CouplePalette.ceyda.withValues(alpha: 0.22),
+      gradient: AppGradients.aura(accent, peakOpacity: 0.14),
+      borderColor: accent.withValues(alpha: 0.22),
       radius: AppRadii.pillAll,
       shadows: const <BoxShadow>[],
       padding: const EdgeInsets.symmetric(
@@ -34,35 +38,29 @@ class BirthdayBanner extends ConsumerWidget {
       ),
       child: Row(
         children: <Widget>[
-          const Text('🎂', style: TextStyle(fontSize: 13)),
+          Text(next.emoji, style: const TextStyle(fontSize: 13)),
           const SizedBox(width: AppSpacing.xs + 1),
           Expanded(
             child: Text(
-              today
-                  ? 'Bugün Ceyda\'nın doğum günü! 🎉'
-                  : 'Ceyda\'nın doğum gününe $daysLeft gün',
+              next.bannerText(at),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTypography.caption.copyWith(
-                color: CouplePalette.ceyda,
+                color: accent,
                 fontWeight: FontWeight.w800,
               ),
             ),
           ),
           Text(
-            today ? 'Kutla' : 'Sürpriz',
+            today ? 'Kutla' : 'Geri sayım',
             maxLines: 1,
             style: AppTypography.caption.copyWith(
-              color: CouplePalette.ceyda,
+              color: accent,
               fontWeight: FontWeight.w700,
               fontSize: 10,
             ),
           ),
-          const Icon(
-            Icons.chevron_right_rounded,
-            size: 16,
-            color: CouplePalette.ceyda,
-          ),
+          Icon(Icons.chevron_right_rounded, size: 16, color: accent),
         ],
       ),
     );

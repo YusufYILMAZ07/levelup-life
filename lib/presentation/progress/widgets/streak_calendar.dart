@@ -36,8 +36,10 @@ class StreakCalendar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DateTime today = DateX.today(now);
-    final DateTime weekStart =
-        DateX.shiftDays(today, -DateX.weekdayIndex(today));
+    final DateTime weekStart = DateX.shiftDays(
+      today,
+      -DateX.weekdayIndex(today),
+    );
     final DateTime gridStart = DateX.shiftDays(weekStart, -(weeks - 1) * 7);
     final int maxXp = log.byDay.values.fold<int>(
       0,
@@ -97,11 +99,7 @@ class StreakCalendar extends StatelessWidget {
               color: AppColors.surfaceSunken,
               bordered: true,
             ),
-            _LegendSwatch(
-              label: 'Bugün',
-              color: AppColors.surface,
-              ring: true,
-            ),
+            _LegendSwatch(label: 'Bugün', color: AppColors.surface, ring: true),
           ],
         ),
       ],

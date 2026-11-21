@@ -12,7 +12,8 @@ enum Archetype {
     title: 'The Scholar',
     label: 'Bilgin',
     tagline: 'Bilgi senin en keskin silahın.',
-    description: 'Uzun vadeli öğrenme ve derin odaklanma üzerine kurulu bir sınıf. '
+    description:
+        'Uzun vadeli öğrenme ve derin odaklanma üzerine kurulu bir sınıf. '
         'Akademik görevlerde %15, disiplin görevlerinde %7 ek XP kazanırsın.',
     statBonuses: <StatKey, double>{
       StatKey.intelligence: 0.15,
@@ -24,7 +25,8 @@ enum Archetype {
     title: 'The Athlete',
     label: 'Atlet',
     tagline: 'Bedeni bir makine gibi çalıştır.',
-    description: 'Performans, toparlanma ve fiziksel dayanıklılık odaklı sınıf. '
+    description:
+        'Performans, toparlanma ve fiziksel dayanıklılık odaklı sınıf. '
         'Fiziksel görevlerde %15, sağlık görevlerinde %7 ek XP kazanırsın.',
     statBonuses: <StatKey, double>{
       StatKey.strength: 0.15,
@@ -36,7 +38,8 @@ enum Archetype {
     title: 'The Hustler',
     label: 'Girişimci',
     tagline: 'Çıktı üretmeyen gün kayıp gündür.',
-    description: 'Kariyer, portfolyo ve hızlı teslimat odaklı sınıf. '
+    description:
+        'Kariyer, portfolyo ve hızlı teslimat odaklı sınıf. '
         'Kariyer görevlerinde %15, akademik görevlerde %7 ek XP kazanırsın.',
     statBonuses: <StatKey, double>{
       StatKey.productivity: 0.15,
@@ -48,7 +51,8 @@ enum Archetype {
     title: 'The Guardian',
     label: 'Muhafız',
     tagline: 'Önce sağlık, sonra her şey.',
-    description: 'Toparlanma, uyku ve beslenme odaklı sınıf. '
+    description:
+        'Toparlanma, uyku ve beslenme odaklı sınıf. '
         'Sağlık görevlerinde %15, fiziksel görevlerde %7 ek XP kazanırsın.',
     statBonuses: <StatKey, double>{
       StatKey.vitality: 0.15,
@@ -60,7 +64,8 @@ enum Archetype {
     title: 'The Monk',
     label: 'Münzevi',
     tagline: 'Disiplin, motivasyondan daha güçlüdür.',
-    description: 'Alışkanlık, erken kalkma ve zihinsel netlik odaklı sınıf. '
+    description:
+        'Alışkanlık, erken kalkma ve zihinsel netlik odaklı sınıf. '
         'Disiplin görevlerinde %15, sağlık görevlerinde %7 ek XP kazanırsın.',
     statBonuses: <StatKey, double>{
       StatKey.willpower: 0.15,
@@ -72,7 +77,8 @@ enum Archetype {
     title: 'The Polymath',
     label: 'Çok Yönlü',
     tagline: 'Hiçbir alan senin dışında kalmasın.',
-    description: 'Dengeli gelişim isteyenler için sınıf. '
+    description:
+        'Dengeli gelişim isteyenler için sınıf. '
         'Tüm statlarda %9 ek XP kazanırsın — daha küçük ama her yerde geçerli bir bonus.',
     statBonuses: <StatKey, double>{
       StatKey.intelligence: 0.09,
@@ -127,8 +133,9 @@ enum Archetype {
   }
 
   /// Bonusu olan tüm statlar (sıralı).
-  List<StatKey> get boostedStats =>
-      StatKey.values.where((StatKey stat) => bonusFor(stat) > 0).toList(growable: false);
+  List<StatKey> get boostedStats => StatKey.values
+      .where((StatKey stat) => bonusFor(stat) > 0)
+      .toList(growable: false);
 
   /// Odak alanlarına göre en uygun sınıfı öner (onboarding'de kullanılır).
   ///
@@ -153,7 +160,8 @@ enum Archetype {
       final double score = total / focusStats.length;
       final double primaryScore = archetype.bonusFor(primaryFocus);
 
-      final bool better = score > bestScore + 1e-9 ||
+      final bool better =
+          score > bestScore + 1e-9 ||
           (score >= bestScore - 1e-9 && primaryScore > bestPrimaryScore);
       if (better) {
         best = archetype;

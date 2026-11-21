@@ -64,8 +64,9 @@ Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
-  testWidgets('uygulama onboarding ile açılır ve isim olmadan ilerlemez',
-      (WidgetTester tester) async {
+  testWidgets('uygulama onboarding ile açılır ve isim olmadan ilerlemez', (
+    WidgetTester tester,
+  ) async {
     await _pumpApp(tester);
 
     expect(find.byType(OnboardingScreen), findsOneWidget);
@@ -79,8 +80,9 @@ void main() {
     expect(find.text('Devam etmek için adını yaz.'), findsOneWidget);
   });
 
-  testWidgets('onboarding cevapları dashboard ve kişisel görevleri üretir',
-      (WidgetTester tester) async {
+  testWidgets('onboarding cevapları dashboard ve kişisel görevleri üretir', (
+    WidgetTester tester,
+  ) async {
     await _pumpApp(tester);
     await _completeOnboarding(tester);
 
@@ -93,28 +95,27 @@ void main() {
     );
     expect(find.text('Bugünün Görevleri'), findsOneWidget);
 
-    final ProviderContainer container =
-        _container(tester, DashboardScreen);
+    final ProviderContainer container = _container(tester, DashboardScreen);
     final gameState = container.read(gameProvider);
     expect(gameState.setup?.studyField, 'Bilgisayar Mühendisliği');
     expect(gameState.profile?.onboardingCompleted, isTrue);
     expect(gameState.quests, isNotEmpty);
     expect(
       gameState.quests.every(
-        (quest) => <String>{'fitness', 'career', 'core'}
-            .contains(quest.tags.first),
+        (quest) =>
+            <String>{'fitness', 'career', 'core'}.contains(quest.tags.first),
       ),
       isTrue,
     );
   });
 
-  testWidgets('görev tamamlamak XP kazandırır ve görevi işaretler',
-      (WidgetTester tester) async {
+  testWidgets('görev tamamlamak XP kazandırır ve görevi işaretler', (
+    WidgetTester tester,
+  ) async {
     await _pumpApp(tester);
     await _completeOnboarding(tester);
 
-    final ProviderContainer container =
-        _container(tester, DashboardScreen);
+    final ProviderContainer container = _container(tester, DashboardScreen);
     expect(container.read(gameProvider).profile!.totalXp, 0);
 
     final Finder completeButton = find.text('Tamamla');
@@ -122,28 +123,28 @@ void main() {
     await tester.tap(completeButton.first);
     await tester.pumpAndSettle();
 
-    // Görev doğrulama modalı: sayaç varsa demoyla hızlı geç, sonra onayla.
+    // Manuel onay gerektirmeyen görev doğrudan tamamlanır; diğer türlerde
+    // doğrulama modalı açılır. Sayaç varsa demoyla hızlı geçip onayla.
     final Finder timerDemo = find.byKey(const Key('verification-timer-demo'));
     if (timerDemo.evaluate().isNotEmpty) {
       await tester.tap(timerDemo);
       await tester.pump(const Duration(seconds: 6));
     }
     final Finder confirm = find.byKey(const Key('verification-confirm'));
-    expect(confirm, findsOneWidget);
-    await tester.tap(confirm);
-    await tester.pumpAndSettle();
+    if (confirm.evaluate().isNotEmpty) {
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+    }
 
     final gameState = container.read(gameProvider);
     expect(gameState.profile!.totalXp, greaterThan(0));
-    expect(
-      gameState.quests.where((quest) => quest.isCompleted),
-      hasLength(1),
-    );
+    expect(gameState.quests.where((quest) => quest.isCompleted), hasLength(1));
     expect(find.textContaining('XP ·'), findsWidgets);
   });
 
-  testWidgets('ayarlardan hedefler sıfırlanınca onboarding geri gelir',
-      (WidgetTester tester) async {
+  testWidgets('ayarlardan hedefler sıfırlanınca onboarding geri gelir', (
+    WidgetTester tester,
+  ) async {
     await _pumpApp(tester);
     await _completeOnboarding(tester);
 
@@ -159,14 +160,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(OnboardingScreen), findsOneWidget);
-    final ProviderContainer container =
-        _container(tester, OnboardingScreen);
+    final ProviderContainer container = _container(tester, OnboardingScreen);
     expect(container.read(gameProvider).profile, isNull);
     expect(container.read(gameProvider).quests, isEmpty);
   });
 
-  testWidgets('modalden özel görev eklenince listeye girer',
-      (WidgetTester tester) async {
+  testWidgets('modalden özel görev eklenince listeye girer', (
+    WidgetTester tester,
+  ) async {
     await _pumpApp(tester);
     await _completeOnboarding(tester);
 
@@ -188,8 +189,7 @@ void main() {
     await tester.tap(submit);
     await tester.pumpAndSettle();
 
-    final ProviderContainer container =
-        _container(tester, DashboardScreen);
+    final ProviderContainer container = _container(tester, DashboardScreen);
     final Quest added = container
         .read(gameProvider)
         .quests

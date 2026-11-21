@@ -35,23 +35,24 @@ GameState _buildState({bool withHistory = true}) {
         .record(at: _now, xp: 40);
   }
 
-  final UserProfile profile = UserProfile.starter(
-    id: 'user-progress',
-    displayName: 'Yusuf Kaya',
-    role: LifeRole.student,
-    focusStats: const <StatKey>{StatKey.intelligence},
-    createdAt: DateTime(2026, 11, 1),
-  ).copyWith(
-    onboardingCompleted: true,
-    totalXp: log.totalXp,
-    xpLog: log,
-    streak: Streak(
-      currentDays: log.currentStreakOn(_now),
-      longestDays: log.longestStreak,
-      lastActiveDay: log.lastActiveDay,
-      totalActiveDays: log.activeDays,
-    ),
-  );
+  final UserProfile profile =
+      UserProfile.starter(
+        id: 'user-progress',
+        displayName: 'Yusuf Kaya',
+        role: LifeRole.student,
+        focusStats: const <StatKey>{StatKey.intelligence},
+        createdAt: DateTime(2026, 11, 1),
+      ).copyWith(
+        onboardingCompleted: true,
+        totalXp: log.totalXp,
+        xpLog: log,
+        streak: Streak(
+          currentDays: log.currentStreakOn(_now),
+          longestDays: log.longestStreak,
+          lastActiveDay: log.lastActiveDay,
+          totalActiveDays: log.activeDays,
+        ),
+      );
 
   return GameState(setup: _setup, profile: profile);
 }
@@ -65,9 +66,7 @@ Future<void> _pumpHost(
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [
-        gameStoreProvider.overrideWithValue(MemoryGameStore(state)),
-      ],
+      overrides: [gameStoreProvider.overrideWithValue(MemoryGameStore(state))],
       child: MaterialApp(theme: AppTheme.light(), home: home),
     ),
   );
@@ -82,8 +81,9 @@ Future<void> _pumpProgress(WidgetTester tester, {bool withHistory = true}) =>
     );
 
 void main() {
-  testWidgets('özet kartları, XP grafiği ve takvim birlikte görünür',
-      (WidgetTester tester) async {
+  testWidgets('özet kartları, XP grafiği ve takvim birlikte görünür', (
+    WidgetTester tester,
+  ) async {
     await _pumpProgress(tester);
 
     expect(find.text('İlerleme'), findsOneWidget);
@@ -110,8 +110,9 @@ void main() {
     );
   });
 
-  testWidgets('7 gün varsayılan, 30 güne geçince seri uzar',
-      (WidgetTester tester) async {
+  testWidgets('7 gün varsayılan, 30 güne geçince seri uzar', (
+    WidgetTester tester,
+  ) async {
     await _pumpProgress(tester);
 
     expect(
@@ -122,8 +123,9 @@ void main() {
     await tester.tap(find.byKey(const Key('progress-range-month')));
     await tester.pumpAndSettle();
 
-    final XpTrendChart chart =
-        tester.widget<XpTrendChart>(find.byType(XpTrendChart));
+    final XpTrendChart chart = tester.widget<XpTrendChart>(
+      find.byType(XpTrendChart),
+    );
     expect(chart.series, hasLength(ProgressRange.month.days));
     expect(chart.range, ProgressRange.month);
     expect(find.text('30 gün'), findsOneWidget);
@@ -134,8 +136,9 @@ void main() {
     expect(chart.series.last.xp, 40);
   });
 
-  testWidgets('boş geçmişte grafik durur ama ipucu gösterilir',
-      (WidgetTester tester) async {
+  testWidgets('boş geçmişte grafik durur ama ipucu gösterilir', (
+    WidgetTester tester,
+  ) async {
     await _pumpProgress(tester, withHistory: false);
 
     expect(find.byType(XpTrendChart), findsOneWidget);
@@ -154,13 +157,10 @@ void main() {
     );
   });
 
-  testWidgets('alt sekme çubuğu Bugün ↔ Gelişim ↔ Sohbet ↔ İlerleme geçişi',
-      (WidgetTester tester) async {
-    await _pumpHost(
-      tester,
-      const AppShell(),
-      state: _buildState(),
-    );
+  testWidgets('alt sekme çubuğu Bugün ↔ Gelişim ↔ Sohbet ↔ İlerleme geçişi', (
+    WidgetTester tester,
+  ) async {
+    await _pumpHost(tester, const AppShell(), state: _buildState());
 
     IndexedStack stack() =>
         tester.widget<IndexedStack>(find.byType(IndexedStack));

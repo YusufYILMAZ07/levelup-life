@@ -135,9 +135,7 @@ final class ScheduleBlock {
     final int safeStart = startMinutes.clamp(0, 24 * 60 - 1);
     final int safeEnd = endMinutes.clamp(1, 24 * 60);
     return ScheduleBlock(
-      id:
-          id ??
-          'plan-$partnerId-$safeWeekday-$safeStart-$safeEnd-$stamp',
+      id: id ?? 'plan-$partnerId-$safeWeekday-$safeStart-$safeEnd-$stamp',
       partnerId: partnerId,
       weekday: safeWeekday,
       startMinutes: safeStart,

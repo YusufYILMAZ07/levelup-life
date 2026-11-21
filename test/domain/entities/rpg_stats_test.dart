@@ -56,8 +56,10 @@ void main() {
 
   group('türetilmiş değerler', () {
     test('radar değerleri half-life eğrisini kullanır', () {
-      final RpgStats stats =
-          RpgStats.initial.gainXp(StatKey.intelligence, 1200);
+      final RpgStats stats = RpgStats.initial.gainXp(
+        StatKey.intelligence,
+        1200,
+      );
 
       expect(stats[StatKey.intelligence].radarValue, closeTo(50, 0.001));
       expect(stats[StatKey.intelligence].rank, StatRank.competent);

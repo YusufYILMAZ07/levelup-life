@@ -83,6 +83,7 @@ class _PhotoLightbox extends ConsumerWidget {
                         source: current.photoDataOrUrl ?? '',
                         height: 320,
                         borderRadius: BorderRadius.zero,
+                        imageCacheWidth: null,
                       ),
                     ),
                   ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/game_controller.dart';
@@ -39,6 +40,7 @@ class DashboardScreen extends ConsumerWidget {
         .read(gameProvider.notifier)
         .completeQuest(quest.id);
     if (award == null || !context.mounted) return;
+    HapticFeedback.lightImpact();
     final String message = award.leveledUp
         ? 'Seviye atladın! Lv ${award.after.level} · +${award.xpGained} XP'
         : '+${award.xpGained} XP · ${quest.stat.code} güçlendi';
@@ -73,6 +75,9 @@ class DashboardScreen extends ConsumerWidget {
                   maxWidth: AppConstants.maxContentWidth,
                 ),
                 child: ListView(
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.xxl,
                     AppSpacing.lg,

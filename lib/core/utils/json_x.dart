@@ -21,24 +21,25 @@ abstract final class JsonX {
       value is String ? value : (value?.toString() ?? fallback);
 
   static int asInt(Object? value, {int fallback = 0}) => switch (value) {
-        int v => v,
-        num v => v.round(),
-        String v => int.tryParse(v) ?? fallback,
-        _ => fallback,
-      };
+    int v => v,
+    num v => v.round(),
+    String v => int.tryParse(v) ?? fallback,
+    _ => fallback,
+  };
 
-  static double asDouble(Object? value, {double fallback = 0}) => switch (value) {
+  static double asDouble(Object? value, {double fallback = 0}) =>
+      switch (value) {
         num v => v.toDouble(),
         String v => double.tryParse(v) ?? fallback,
         _ => fallback,
       };
 
   static bool asBool(Object? value, {bool fallback = false}) => switch (value) {
-        bool v => v,
-        num v => v != 0,
-        String v => v.toLowerCase() == 'true',
-        _ => fallback,
-      };
+    bool v => v,
+    num v => v != 0,
+    String v => v.toLowerCase() == 'true',
+    _ => fallback,
+  };
 
   static DateTime? asDate(Object? value) =>
       value is String ? DateTime.tryParse(value) : null;
@@ -51,7 +52,11 @@ abstract final class JsonX {
   }
 
   /// Enum'ı `name` üzerinden çözer; bilinmeyen değerde [fallback] döner.
-  static T asEnum<T extends Enum>(List<T> values, Object? raw, {required T fallback}) {
+  static T asEnum<T extends Enum>(
+    List<T> values,
+    Object? raw, {
+    required T fallback,
+  }) {
     if (raw is String) {
       for (final T candidate in values) {
         if (candidate.name == raw) return candidate;

@@ -21,8 +21,8 @@ final class Questline {
     this.missedDays = 0,
     this.isPremium = false,
     this.badgeCode,
-  })  : assert(totalDays > 0, 'Questline en az 1 gün olmalı'),
-        assert(dailyXp >= 0, 'Günlük XP negatif olamaz');
+  }) : assert(totalDays > 0, 'Questline en az 1 gün olmalı'),
+       assert(dailyXp >= 0, 'Günlük XP negatif olamaz');
 
   /// Kaçırılabilecek gün sayısı (questline'ı bozmadan).
   static const int toleranceMisses = 1;
@@ -118,18 +118,18 @@ final class Questline {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'id': id,
-        'title': title,
-        'summary': summary,
-        'stat': stat.code,
-        'total_days': totalDays,
-        'daily_xp': dailyXp,
-        'started_on': DateX.isoDay(startedOn),
-        'completed_days': completedDays,
-        'missed_days': missedDays,
-        'is_premium': isPremium,
-        'badge_code': badgeCode,
-      };
+    'id': id,
+    'title': title,
+    'summary': summary,
+    'stat': stat.code,
+    'total_days': totalDays,
+    'daily_xp': dailyXp,
+    'started_on': DateX.isoDay(startedOn),
+    'completed_days': completedDays,
+    'missed_days': missedDays,
+    'is_premium': isPremium,
+    'badge_code': badgeCode,
+  };
 
   factory Questline.fromJson(Map<String, dynamic> json) {
     final int days = JsonX.asInt(json['total_days'], fallback: 7);
@@ -137,11 +137,13 @@ final class Questline {
       id: JsonX.asString(json['id']),
       title: JsonX.asString(json['title']),
       summary: JsonX.asString(json['summary']),
-      stat: StatKey.tryFromCode(JsonX.asString(json['stat'])) ??
+      stat:
+          StatKey.tryFromCode(JsonX.asString(json['stat'])) ??
           StatKey.willpower,
       totalDays: days <= 0 ? 7 : days,
       dailyXp: JsonX.asInt(json['daily_xp'], fallback: 20),
-      startedOn: DateX.parseIsoDay(JsonX.asString(json['started_on'])) ??
+      startedOn:
+          DateX.parseIsoDay(JsonX.asString(json['started_on'])) ??
           DateTime.now(),
       completedDays: JsonX.asInt(json['completed_days']),
       missedDays: JsonX.asInt(json['missed_days']),
@@ -168,10 +170,21 @@ final class Questline {
       other.badgeCode == badgeCode;
 
   @override
-  int get hashCode => Object.hash(id, title, stat, totalDays, dailyXp,
-      startedOn, completedDays, missedDays, isPremium, badgeCode);
+  int get hashCode => Object.hash(
+    id,
+    title,
+    stat,
+    totalDays,
+    dailyXp,
+    startedOn,
+    completedDays,
+    missedDays,
+    isPremium,
+    badgeCode,
+  );
 
   @override
-  String toString() => 'Questline($id · $title · $completedDays/$totalDays gün · '
+  String toString() =>
+      'Questline($id · $title · $completedDays/$totalDays gün · '
       '$percent%)';
 }

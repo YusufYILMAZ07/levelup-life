@@ -113,9 +113,10 @@ void main() {
     });
 
     test('bozuk JSON varsayılan emoji ve eşikle okunur', () {
-      final RewardCapsule restored = RewardCapsule.fromJson(
-        <String, dynamic>{'id': 'x', 'title': 'Eksik'},
-      );
+      final RewardCapsule restored = RewardCapsule.fromJson(<String, dynamic>{
+        'id': 'x',
+        'title': 'Eksik',
+      });
       expect(restored.emoji, '🎁');
       expect(restored.requiredPoints, 250);
       expect(restored.isOpened, isFalse);
@@ -133,7 +134,8 @@ void main() {
         rubricScores: <String, int>{
           for (final String partnerId in CouplePartner.ids)
             for (final PillarDefinition pillar in DevelopmentRubric.pillars)
-              CoupleState.rubricKey(partnerId, pillar.stat, day): scorePerPillar,
+              CoupleState.rubricKey(partnerId, pillar.stat, day):
+                  scorePerPillar,
         },
       );
     }
@@ -143,14 +145,8 @@ void main() {
       // 5 pillar × 2 puan (25 XP) × 2 partner = 250
       expect(withPoints(2).combinedPoints, 250);
       expect(withPoints(3).combinedPoints, 5 * 45 * 2);
-      expect(
-        withPoints(2).improvementPointsOf(CouplePartner.yusufId),
-        125,
-      );
-      expect(
-        withPoints(2).improvementPointsOf(CouplePartner.ceydaId),
-        125,
-      );
+      expect(withPoints(2).improvementPointsOf(CouplePartner.yusufId), 125);
+      expect(withPoints(2).improvementPointsOf(CouplePartner.ceydaId), 125);
     });
 
     test('aralık dışı rubrik puanları XP hesabında kırpılır', () {
@@ -174,10 +170,11 @@ void main() {
         capsule(id: 'c-dusuk', requiredPoints: 50),
         capsule(id: 'c-orta', requiredPoints: 250),
       ]);
-      expect(
-        state.capsulesByThreshold.map((RewardCapsule c) => c.id),
-        <String>['c-dusuk', 'c-orta', 'c-yuksek'],
-      );
+      expect(state.capsulesByThreshold.map((RewardCapsule c) => c.id), <String>[
+        'c-dusuk',
+        'c-orta',
+        'c-yuksek',
+      ]);
       expect(state.capsuleById('c-orta')?.requiredPoints, 250);
       expect(state.capsuleById('yok'), isNull);
     });
@@ -194,11 +191,7 @@ void main() {
       final CoupleState unlocked = withCapsules(<RewardCapsule>[
         capsule(id: 'c-100', requiredPoints: 100),
         capsule(id: 'c-300', requiredPoints: 300),
-      ]).copyWith(
-        rubricScores: <String, int>{
-          ...withPoints(2).rubricScores,
-        },
-      );
+      ]).copyWith(rubricScores: <String, int>{...withPoints(2).rubricScores});
       expect(unlocked.combinedPoints, 250);
       expect(unlocked.unlockedCapsuleCount, 1);
       expect(unlocked.nextUnlockedCapsule?.id, 'c-100');
@@ -217,9 +210,7 @@ void main() {
       expect(identical(locked.openCapsule('yok'), locked), isTrue);
 
       final CoupleState opened = locked
-          .copyWith(
-            rubricScores: <String, int>{...withPoints(3).rubricScores},
-          )
+          .copyWith(rubricScores: <String, int>{...withPoints(3).rubricScores})
           .openCapsule('c-500', now: day);
       expect(identical(opened.openCapsule('c-500'), opened), isTrue);
     });
@@ -262,5 +253,4 @@ void main() {
       expect(restored.combinedPoints, original.combinedPoints);
     });
   });
-
 }

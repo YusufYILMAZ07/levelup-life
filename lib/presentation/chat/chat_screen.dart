@@ -44,6 +44,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   ChatMessage? _replyTarget;
   bool _searching = false;
+  bool _loadingOlder = false;
   String _query = '';
 
   @override
@@ -92,9 +93,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .read(gameProvider.notifier)
         .sendMessage(_input.text, replyTo: _replyTarget);
     if (message == null) return;
+    HapticFeedback.lightImpact();
     _input.clear();
     setState(() => _replyTarget = null);
     WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
+  }
+
+  Future<void> _loadOlderMessages() async {
+    if (_loadingOlder) return;
+    setState(() => _loadingOlder = true);
+    final int added = await ref.read(cloudSyncProvider).loadOlderMessages();
+    if (!mounted) return;
+    setState(() => _loadingOlder = false);
+    if (added < 0) {
+      _snack('Önce Ayarlar’dan Supabase bağlantısını kur ☁️');
+    } else if (added == 0) {
+      _snack('Daha eski mesaj yok · tüm geçmiş burada 💌');
+    } else {
+      _snack('$added eski mesaj yüklendi ⬆️');
+    }
   }
 
   void _startReply(ChatMessage message) {
@@ -374,6 +391,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           replyTo: _replyTarget,
         );
     if (message == null) return;
+    HapticFeedback.lightImpact();
     setState(() => _replyTarget = null);
     _snack(picked.isVideo ? '🎥 Video gönderildi' : '📸 Fotoğraf gönderildi');
     WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
@@ -386,7 +404,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     ref.listen<GameState>(gameProvider, (GameState? previous, GameState next) {
       if (previous == null) return;
-      if (previous.couple.messages.length != next.couple.messages.length) {
+      if (!_loadingOlder &&
+          previous.couple.messages.length != next.couple.messages.length) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
       }
       final bool hasUnread = next.couple.messages.any(
@@ -456,6 +475,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         .read(gameProvider.notifier)
                         .nudgePartner();
                     if (message == null) return;
+                    HapticFeedback.lightImpact();
                     _snack('💫 Dürtme gönderildi · +10 XP');
                     WidgetsBinding.instance.addPostFrameCallback(
                       (_) => _jumpToEnd(),
@@ -466,6 +486,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         .read(gameProvider.notifier)
                         .sendLoveNote();
                     if (message == null) return;
+                    HapticFeedback.lightImpact();
                     WidgetsBinding.instance.addPostFrameCallback(
                       (_) => _jumpToEnd(),
                     );
@@ -549,29 +570,91 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return ListView.builder(
       controller: _scroll,
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.xxl,
         AppSpacing.sm,
         AppSpacing.xxl,
         AppSpacing.md,
       ),
-      itemCount: rows.length,
+      itemCount: rows.length + 1,
       itemBuilder: (BuildContext context, int index) {
-        final Object row = rows[index];
+        if (index == 0) {
+          return _LoadOlderMessagesButton(
+            loading: _loadingOlder,
+            onTap: _loadOlderMessages,
+          );
+        }
+        final Object row = rows[index - 1];
         if (row is DateTime) {
           return _DatePill(label: _dayLabel(row));
         }
         final ChatMessage message = row as ChatMessage;
-        return _MessageBubble(
-          key: ValueKey<String>('chat-${message.id}'),
-          message: message,
-          isMine: message.senderId == state.activePartnerId,
-          onLike: () => ref.read(gameProvider.notifier).likeMessage(message.id),
-          onOpen: () => showPhotoLightbox(context, message),
-          onLongPress: () => _openActions(message),
-          onSwipeReply: () => _startReply(message),
+        return RepaintBoundary(
+          child: _MessageBubble(
+            key: ValueKey<String>('chat-${message.id}'),
+            message: message,
+            isMine: message.senderId == state.activePartnerId,
+            onLike: () =>
+                ref.read(gameProvider.notifier).likeMessage(message.id),
+            onOpen: () => showPhotoLightbox(context, message),
+            onLongPress: () => _openActions(message),
+            onSwipeReply: () => _startReply(message),
+          ),
         );
       },
+    );
+  }
+}
+
+class _LoadOlderMessagesButton extends StatelessWidget {
+  const _LoadOlderMessagesButton({required this.loading, required this.onTap});
+
+  final bool loading;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Center(
+        child: TextButton.icon(
+          key: const Key('load-older-messages'),
+          onPressed: loading ? null : onTap,
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.textSecondary,
+            backgroundColor: AppColors.surface,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.xs,
+            ),
+            shape: const RoundedRectangleBorder(
+              borderRadius: AppRadii.pillAll,
+              side: BorderSide(color: AppColors.border),
+            ),
+          ),
+          icon: loading
+              ? const SizedBox(
+                  width: 13,
+                  height: 13,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.arrow_upward_rounded, size: 15),
+          label: Text(
+            loading
+                ? 'Eski mesajlar yükleniyor…'
+                : '⬆️ Daha Eski Mesajları Yükle',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w800,
+              fontSize: 10,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

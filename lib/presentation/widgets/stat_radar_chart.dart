@@ -46,9 +46,7 @@ class StatRadarChart extends StatelessWidget {
   final bool onDark;
 
   bool get _hasLegend =>
-      primaryLabel != null ||
-      secondaryLabel != null ||
-      secondaryValues != null;
+      primaryLabel != null || secondaryLabel != null || secondaryValues != null;
 
   @override
   Widget build(BuildContext context) {
@@ -72,35 +70,37 @@ class StatRadarChart extends StatelessWidget {
       ),
     );
 
-    if (!_hasLegend) return chart;
+    if (!_hasLegend) return RepaintBoundary(child: chart);
 
-    return SizedBox(
-      width: size,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          chart,
-          const SizedBox(height: AppSpacing.xs),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.xxs,
-            children: <Widget>[
-              if (primaryLabel != null)
-                _RadarLegendItem(
-                  label: primaryLabel!,
-                  color: accent,
-                  onDark: onDark,
-                ),
-              if (secondaryValues != null && secondaryLabel != null)
-                _RadarLegendItem(
-                  label: secondaryLabel!,
-                  color: secondaryAccent,
-                  onDark: onDark,
-                ),
-            ],
-          ),
-        ],
+    return RepaintBoundary(
+      child: SizedBox(
+        width: size,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            chart,
+            const SizedBox(height: AppSpacing.xs),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: AppSpacing.md,
+              runSpacing: AppSpacing.xxs,
+              children: <Widget>[
+                if (primaryLabel != null)
+                  _RadarLegendItem(
+                    label: primaryLabel!,
+                    color: accent,
+                    onDark: onDark,
+                  ),
+                if (secondaryValues != null && secondaryLabel != null)
+                  _RadarLegendItem(
+                    label: secondaryLabel!,
+                    color: secondaryAccent,
+                    onDark: onDark,
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -173,10 +173,12 @@ class _RadarPainter extends CustomPainter {
           Offset(math.cos(angle) * distance, math.sin(angle) * distance);
     }
 
-    final Color outlineColor =
-        onDark ? Colors.white.withValues(alpha: 0.22) : AppColors.border;
-    final Color axisColor =
-        onDark ? Colors.white.withValues(alpha: 0.14) : AppColors.divider;
+    final Color outlineColor = onDark
+        ? Colors.white.withValues(alpha: 0.22)
+        : AppColors.border;
+    final Color axisColor = onDark
+        ? Colors.white.withValues(alpha: 0.14)
+        : AppColors.divider;
     final Paint gridPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
@@ -284,8 +286,7 @@ class _RadarPainter extends CustomPainter {
   }) {
     final Path path = Path();
     for (int i = 0; i < stats.length; i++) {
-      final double value =
-          (data[stats[i]] ?? 0).clamp(0, 100).toDouble() / 100;
+      final double value = (data[stats[i]] ?? 0).clamp(0, 100).toDouble() / 100;
       final Offset point = pointAt(i, radius * value);
       if (i == 0) {
         path.moveTo(point.dx, point.dy);
@@ -305,9 +306,7 @@ class _RadarPainter extends CustomPainter {
             color.withValues(alpha: fillAlpha),
             color.withValues(alpha: fillAlpha * 0.25),
           ],
-        ).createShader(
-          Rect.fromLTWH(-radius, -radius, radius * 2, radius * 2),
-        ),
+        ).createShader(Rect.fromLTWH(-radius, -radius, radius * 2, radius * 2)),
     );
     canvas.drawPath(
       path,
@@ -319,7 +318,11 @@ class _RadarPainter extends CustomPainter {
     );
   }
 
-  Path _polygon(int count, double radius, Offset Function(int, double) pointAt) {
+  Path _polygon(
+    int count,
+    double radius,
+    Offset Function(int, double) pointAt,
+  ) {
     final Path path = Path();
     for (int i = 0; i < count; i++) {
       final Offset point = pointAt(i, radius);

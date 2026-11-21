@@ -65,7 +65,7 @@ Future<VideoSourceChoice?> showVideoSourceSheet(BuildContext context) {
             key: const Key('video-camera'),
             leading: const Text('🎥', style: TextStyle(fontSize: 22)),
             title: const Text('Kamerayla video çek'),
-            subtitle: const Text('En fazla 60 saniye'),
+            subtitle: const Text('En fazla 45 saniye · 20 MB'),
             onTap: () =>
                 Navigator.of(sheetContext).pop(VideoSourceChoice.camera),
           ),
@@ -166,7 +166,7 @@ class ChatMediaSheet extends ConsumerWidget {
               key: const Key('media-video'),
               emoji: '🎥',
               title: 'Galeriden / Kameradan Video Gönder',
-              subtitle: 'En fazla 60 saniye · sesli',
+              subtitle: 'En fazla 45 saniye · 20 MB · sesli',
               accent: AppColors.statProductivity,
               onTap: () => Navigator.of(
                 context,

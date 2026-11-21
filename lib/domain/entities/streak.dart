@@ -94,26 +94,23 @@ final class Streak {
   Streak freezeMissedDay(DateTime now) {
     if (!canFreezeOn(now)) return this;
     final DateTime bridgedDay = DateX.shiftDays(DateX.dateOnly(now), -1);
-    return copyWith(
-      lastActiveDay: bridgedDay,
-      freezeTokens: freezeTokens - 1,
-    );
+    return copyWith(lastActiveDay: bridgedDay, freezeTokens: freezeTokens - 1);
   }
 
   Streak addFreezeTokens(int amount) => copyWith(
-        freezeTokens: math.min(
-          AppConstants.maxFreezeTokens,
-          math.max(0, freezeTokens + amount),
-        ),
-      );
+    freezeTokens: math.min(
+      AppConstants.maxFreezeTokens,
+      math.max(0, freezeTokens + amount),
+    ),
+  );
 
   Streak reset() => Streak(
-        currentDays: 0,
-        longestDays: longestDays,
-        lastActiveDay: lastActiveDay,
-        freezeTokens: freezeTokens,
-        totalActiveDays: totalActiveDays,
-      );
+    currentDays: 0,
+    longestDays: longestDays,
+    lastActiveDay: lastActiveDay,
+    freezeTokens: freezeTokens,
+    totalActiveDays: totalActiveDays,
+  );
 
   Streak copyWith({
     int? currentDays,
@@ -132,23 +129,25 @@ final class Streak {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'current_days': currentDays,
-        'longest_days': longestDays,
-        'last_active_day': lastActiveDay == null ? null : DateX.isoDay(lastActiveDay!),
-        'freeze_tokens': freezeTokens,
-        'total_active_days': totalActiveDays,
-      };
+    'current_days': currentDays,
+    'longest_days': longestDays,
+    'last_active_day': lastActiveDay == null
+        ? null
+        : DateX.isoDay(lastActiveDay!),
+    'freeze_tokens': freezeTokens,
+    'total_active_days': totalActiveDays,
+  };
 
   factory Streak.fromJson(Map<String, dynamic> json) => Streak(
-        currentDays: JsonX.asInt(json['current_days']),
-        longestDays: JsonX.asInt(json['longest_days']),
-        lastActiveDay: DateX.parseIsoDay(JsonX.asString(json['last_active_day'])),
-        freezeTokens: JsonX.asInt(
-          json['freeze_tokens'],
-          fallback: AppConstants.startingFreezeTokens,
-        ),
-        totalActiveDays: JsonX.asInt(json['total_active_days']),
-      );
+    currentDays: JsonX.asInt(json['current_days']),
+    longestDays: JsonX.asInt(json['longest_days']),
+    lastActiveDay: DateX.parseIsoDay(JsonX.asString(json['last_active_day'])),
+    freezeTokens: JsonX.asInt(
+      json['freeze_tokens'],
+      fallback: AppConstants.startingFreezeTokens,
+    ),
+    totalActiveDays: JsonX.asInt(json['total_active_days']),
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -161,14 +160,15 @@ final class Streak {
 
   @override
   int get hashCode => Object.hash(
-        currentDays,
-        longestDays,
-        lastActiveDay,
-        freezeTokens,
-        totalActiveDays,
-      );
+    currentDays,
+    longestDays,
+    lastActiveDay,
+    freezeTokens,
+    totalActiveDays,
+  );
 
   @override
-  String toString() => 'Streak($currentDays gün, rekor $longestDays, '
+  String toString() =>
+      'Streak($currentDays gün, rekor $longestDays, '
       '$freezeTokens dondurma)';
 }

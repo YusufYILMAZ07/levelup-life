@@ -68,6 +68,14 @@ abstract final class NotificationTexts {
 
   static String testBody() =>
       'Bildirimler hazır! Yusuf & Ceyda bildirimlerini buradan görecek 💞';
+
+  /// Özel günden bir gün önce 20:00.
+  static String specialDateEve(SpecialDate date) =>
+      '✨ Yarın büyük gün! ${date.title} yaklaşıyor ❤️';
+
+  /// Özel günün sabahı 09:00.
+  static String specialDateDay(SpecialDate date) =>
+      '🎉 Bugün ${date.title}! Uygulamayı aç ve sürprizi gör 💖';
 }
 
 /// Gerçek iOS / Android bildirim motoru.
@@ -88,10 +96,16 @@ final class NotificationService {
 
   static const int _dailyCheckinId = 9001;
   static const int _testId = 9002;
+  static const int _specialDateIdBase = 9200;
 
   FlutterLocalNotificationsPlugin? _plugin;
   final Set<int> _planIds = <int>{};
   bool _ready = false;
+
+  /// Bildirime dokunulduğunda payload'ı uygulamaya taşır.
+  ///
+  /// AppServices bu köprüyü Sohbet sekmesine yönlendirmek için kullanır.
+  void Function(String? payload)? onNotificationTap;
 
   bool get isReady => _ready;
 
@@ -116,13 +130,17 @@ final class NotificationService {
     ),
     iOS: DarwinNotificationDetails(
       presentAlert: true,
+      presentBanner: true,
       presentBadge: true,
       presentSound: true,
+      presentList: true,
     ),
     macOS: DarwinNotificationDetails(
       presentAlert: true,
+      presentBanner: true,
       presentBadge: true,
       presentSound: true,
+      presentList: true,
     ),
   );
 
@@ -156,6 +174,9 @@ final class NotificationService {
           iOS: darwin,
           macOS: darwin,
         ),
+        onDidReceiveNotificationResponse: (NotificationResponse response) {
+          onNotificationTap?.call(response.payload);
+        },
       );
 
       final AndroidFlutterLocalNotificationsPlugin? androidPlugin = plugin
@@ -176,6 +197,13 @@ final class NotificationService {
       }
       _plugin = plugin;
       _ready = true;
+      // Uygulama tamamen kapalıyken bildirime dokunulduysa payload'ı
+      // initialize callback'i değil, launch details taşır.
+      final NotificationAppLaunchDetails? launchDetails = await plugin
+          .getNotificationAppLaunchDetails();
+      if (launchDetails?.didNotificationLaunchApp ?? false) {
+        onNotificationTap?.call(launchDetails?.notificationResponse?.payload);
+      }
       lastError = null;
       return true;
     } catch (error) {
@@ -246,8 +274,11 @@ final class NotificationService {
   }
 
   /// Partnerden gelen mesaj / fotoğraf / video / dürtme için anlık bildirim.
+  ///
+  /// `init()` daha önce çağrılmadıysa **burada** çağrılır; böylece bildirim
+  /// sessizce kaybolmaz.
   Future<bool> showPartnerMessage(ChatMessage message) async {
-    if (!_ready || _plugin == null) return false;
+    if (!await init() || _plugin == null) return false;
     try {
       final int id = 1000 + (message.id.hashCode.abs() % 800);
       await _plugin!.show(
@@ -265,7 +296,8 @@ final class NotificationService {
   }
 
   Future<bool> showCapsuleUnlocked(RewardCapsule capsule) async {
-    if (!_ready || _plugin == null) return false;
+    if (!await init() || _plugin == null) return false;
+    await requestPermissions();
     try {
       await _plugin!.show(
         1900 + (capsule.id.hashCode.abs() % 90),
@@ -288,7 +320,8 @@ final class NotificationService {
     required String body,
     String payload = 'sync',
   }) async {
-    if (!_ready || _plugin == null) return false;
+    if (!await init() || _plugin == null) return false;
+    await requestPermissions();
     try {
       await _plugin!.show(
         1800 + (payload.hashCode.abs() % 90),
@@ -391,6 +424,109 @@ final class NotificationService {
     }
   }
 
+  /// 4 özel gün için **her yıl tekrar eden** iki bildirim kurar:
+  /// bir gün önce 20:00 ve günün sabahı 09:00.
+  Future<int> scheduleSpecialDates({
+    DateTime? now,
+    List<SpecialDate> dates = CoupleSpecialDates.all,
+  }) async {
+    if (!await init() || _plugin == null) return 0;
+    await requestPermissions();
+    final DateTime at = now ?? DateTime.now();
+    int scheduled = 0;
+    for (int i = 0; i < dates.length; i++) {
+      final SpecialDate date = dates[i];
+      final List<_SpecialReminder> reminders = <_SpecialReminder>[
+        _SpecialReminder(
+          hour: 20,
+          minute: 0,
+          oneDayBefore: true,
+          title: '✨ Yarın büyük gün! ${date.emoji}',
+          body: NotificationTexts.specialDateEve(date),
+        ),
+        _SpecialReminder(
+          hour: 9,
+          minute: 0,
+          oneDayBefore: false,
+          title: '🎉 Bugün ${date.title}!',
+          body: NotificationTexts.specialDateDay(date),
+        ),
+      ];
+      for (int r = 0; r < reminders.length; r++) {
+        final _SpecialReminder reminder = reminders[r];
+        try {
+          final DateTime when = nextSpecialReminder(
+            date: date,
+            now: at,
+            hour: reminder.hour,
+            minute: reminder.minute,
+            oneDayBefore: reminder.oneDayBefore,
+          );
+          await _plugin!.zonedSchedule(
+            _specialDateIdBase + i * 10 + r,
+            reminder.title,
+            reminder.body,
+            tz.TZDateTime.from(when, tz.local),
+            _details,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+            matchDateTimeComponents: DateTimeComponents.dateAndTime,
+            payload: 'special:${date.id}',
+          );
+          scheduled++;
+        } catch (error) {
+          lastError = error.toString();
+        }
+      }
+    }
+    return scheduled;
+  }
+
+  /// Yıllık özel gün bildiriminin bir sonraki gerçek zamanı (saf fonksiyon).
+  static DateTime nextSpecialReminder({
+    required SpecialDate date,
+    required DateTime now,
+    required int hour,
+    required int minute,
+    required bool oneDayBefore,
+  }) {
+    DateTime occurrence = date.nextOccurrence(now);
+    DateTime candidate = _reminderAt(
+      occurrence,
+      hour: hour,
+      minute: minute,
+      oneDayBefore: oneDayBefore,
+    );
+    if (!candidate.isAfter(now)) {
+      occurrence = DateTime(
+        occurrence.year + 1,
+        occurrence.month,
+        occurrence.day,
+      );
+      candidate = _reminderAt(
+        occurrence,
+        hour: hour,
+        minute: minute,
+        oneDayBefore: oneDayBefore,
+      );
+    }
+    return candidate;
+  }
+
+  static DateTime _reminderAt(
+    DateTime occurrence, {
+    required int hour,
+    required int minute,
+    required bool oneDayBefore,
+  }) => DateTime(
+    occurrence.year,
+    occurrence.month,
+    occurrence.day - (oneDayBefore ? 1 : 0),
+    hour,
+    minute,
+  );
+
   Future<void> cancelAll() async {
     _planIds.clear();
     try {
@@ -430,4 +566,21 @@ final class NotificationService {
 
   static int _planNotificationId(String blockId) =>
       2000 + (blockId.hashCode.abs() % 6000);
+}
+
+/// Özel gün bildirim planının iç yardımcısı.
+final class _SpecialReminder {
+  const _SpecialReminder({
+    required this.hour,
+    required this.minute,
+    required this.oneDayBefore,
+    required this.title,
+    required this.body,
+  });
+
+  final int hour;
+  final int minute;
+  final bool oneDayBefore;
+  final String title;
+  final String body;
 }

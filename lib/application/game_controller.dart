@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/game_store.dart';
 import '../domain/entities/entities.dart';
 import '../domain/services/services.dart';
+import '../services/app_settings.dart';
 import 'couple_bootstrap.dart';
 import 'game_state.dart';
 
@@ -111,7 +112,12 @@ final class GameController extends Notifier<GameState> {
   // ── Partner geçişi ───────────────────────────────────────────────────────
 
   /// Üst bardaki segmentten partner değiştirir.
+  ///
+  /// Cihaz sahibi kilidi açıksa yalnızca kilitli profile geçilebilir; böylece
+  /// yanlış isimle mesaj / puan girilmesi engellenir.
   void switchPartner(String partnerId) {
+    final AppSettings settings = ref.read(appSettingsProvider);
+    if (settings.lockToDeviceOwner && partnerId != settings.deviceRole) return;
     final GameState next = state.activatePartner(partnerId);
     if (identical(next, state)) return;
     // Telefonu devralan partner, karşı taraftan gelen mesajları görmüş olur.
@@ -122,6 +128,15 @@ final class GameController extends Notifier<GameState> {
   /// Yusuf ↔ Ceyda geçişi.
   void toggleActivePartner() =>
       switchPartner(CouplePartner.other(state.activePartnerId));
+
+  /// Cihaz sahibi kilidi açıksa aktif profili sahibe sabitler.
+  void enforceDeviceOwner(AppSettings settings) {
+    if (!settings.lockToDeviceOwner || !state.isCoupleEdition) return;
+    if (!CouplePartner.isValid(settings.deviceRole)) return;
+    if (state.activePartnerId == settings.deviceRole) return;
+    state = state.activatePartner(settings.deviceRole);
+    _persist();
+  }
 
   /// Üst bardaki canlı durum seçimi.
   void setLiveStatus(LiveStatus status, {String? partnerId}) {
@@ -618,10 +633,101 @@ final class GameController extends Notifier<GameState> {
     return true;
   }
 
-  /// Karşı telefondan gelen tam durumu uygular (çift yönlü bulut senkronu).
-  void applyRemoteState(GameState remote) {
-    state = remote;
+  /// Geçmişten gelen mesajları yereldeki mesajlarla birleştirir.
+  ///
+  /// Hiçbir yerel mesaj silinmez; yalnızca yeni id'ler eklenir ve liste
+  /// kronolojik sıraya girer. Eklenen mesaj sayısını döner.
+  int mergeRemoteMessages(List<ChatMessage> incoming) {
+    if (incoming.isEmpty) return 0;
+    final List<ChatMessage> merged = _mergeMessages(
+      state.couple.messages,
+      incoming,
+    );
+    if (merged.length == state.couple.messages.length) return 0;
+    final int added = merged.length - state.couple.messages.length;
+    state = state.withCouple(state.couple.copyWith(messages: merged));
     _persist();
+    return added;
+  }
+
+  /// Karşı telefondan gelen tam durumu **tahribatsız** uygular.
+  ///
+  /// Mesajlar, kapsüller ve plan blokları birleştirilir; rubrik/puan gibi
+  /// skor alanları karşı cihazın daha güncel değerlerini alır.
+  void applyRemoteState(GameState remote) {
+    final CoupleState local = state.couple;
+    final CoupleState merged = remote.couple.copyWith(
+      messages: _mergeMessages(local.messages, remote.couple.messages),
+      rewardCapsules: _mergeCapsules(
+        local.rewardCapsules,
+        remote.couple.rewardCapsules,
+      ),
+      scheduleBlocks: _mergeSchedules(
+        local.scheduleBlocks,
+        remote.couple.scheduleBlocks,
+      ),
+      bucketGoals: remote.couple.bucketGoals.isEmpty
+          ? local.bucketGoals
+          : remote.couple.bucketGoals,
+      customLoveNotes: <String>{
+        ...local.customLoveNotes,
+        ...remote.couple.customLoveNotes,
+      }.toList(growable: false),
+    );
+    state = remote.withCouple(merged);
+    _persist();
+  }
+
+  static List<ChatMessage> _mergeMessages(
+    List<ChatMessage> local,
+    List<ChatMessage> remote,
+  ) {
+    final Map<String, ChatMessage> byId = <String, ChatMessage>{
+      for (final ChatMessage message in local) message.id: message,
+    };
+    for (final ChatMessage message in remote) {
+      byId.putIfAbsent(message.id, () => message);
+    }
+    final List<ChatMessage> merged = byId.values.toList(growable: false);
+    merged.sort((ChatMessage a, ChatMessage b) {
+      final int byTime = a.createdAt.compareTo(b.createdAt);
+      return byTime != 0 ? byTime : a.id.compareTo(b.id);
+    });
+    return merged;
+  }
+
+  static List<RewardCapsule> _mergeCapsules(
+    List<RewardCapsule> local,
+    List<RewardCapsule> remote,
+  ) {
+    final Map<String, RewardCapsule> merged = <String, RewardCapsule>{
+      for (final RewardCapsule capsule in remote) capsule.id: capsule,
+    };
+    for (final RewardCapsule capsule in local) {
+      final RewardCapsule? other = merged[capsule.id];
+      if (other == null) {
+        merged[capsule.id] = capsule;
+      } else if (capsule.isOpened && !other.isOpened) {
+        merged[capsule.id] = other.copyWith(
+          isOpened: true,
+          openedAt: capsule.openedAt,
+        );
+      }
+    }
+    return merged.values.toList(growable: false);
+  }
+
+  static List<ScheduleBlock> _mergeSchedules(
+    List<ScheduleBlock> local,
+    List<ScheduleBlock> remote,
+  ) {
+    final Map<String, ScheduleBlock> merged = <String, ScheduleBlock>{
+      for (final ScheduleBlock block in remote) block.id: block,
+    };
+    for (final ScheduleBlock block in local) {
+      merged.putIfAbsent(block.id, () => block);
+    }
+    return merged.values.toList(growable: false);
   }
 
   /// Mesajı beğeni durumunu değiştirmeden yerinde günceller (okundu vb.).

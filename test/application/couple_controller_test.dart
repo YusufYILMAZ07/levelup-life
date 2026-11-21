@@ -247,10 +247,7 @@ void main() {
     controller().setBirthdayMessage(CoupleState.defaultBirthdayMessage);
 
     expect(identical(state().couple, before), isTrue);
-    expect(
-      state().couple.withBirthdayMessage(''),
-      same(state().couple),
-    );
+    expect(state().couple.withBirthdayMessage(''), same(state().couple));
   });
 
   test('store yeniden yüklenince aynı çift durumu gelir', () async {
@@ -260,6 +257,71 @@ void main() {
     final GameState? loaded = store.load();
     expect(loaded?.isCoupleEdition, isTrue);
     expect(loaded?.couple.messages.last.text, 'Store testi');
+  });
+
+  test('geçmiş mesajları yerel geçmişi silmeden birleştirir', () {
+    final List<ChatMessage> before = state().couple.messages;
+    final ChatMessage remote = ChatMessage(
+      id: 'remote-history',
+      senderId: CouplePartner.ceydaId,
+      createdAt: DateTime(2025, 1, 1, 9),
+      text: 'Eski ama kalıcı',
+    );
+
+    final int added = controller().mergeRemoteMessages(<ChatMessage>[
+      remote,
+      before.first,
+    ]);
+
+    expect(added, 1);
+    expect(state().couple.messages, hasLength(before.length + 1));
+    expect(state().couple.messageById('remote-history'), isNotNull);
+    expect(state().couple.messageById(before.first.id), isNotNull);
+    expect(state().couple.messages.first.id, 'remote-history');
+  });
+
+  test('gecikmeli gelen eski mesaj kronolojik sıraya yerleşir', () {
+    controller().sendMessage('Yeni mesaj');
+    final ChatMessage delayed = ChatMessage(
+      id: 'delayed-old',
+      senderId: CouplePartner.ceydaId,
+      createdAt: DateTime(2025, 1, 1, 9),
+      text: 'Gecikmeli eski mesaj',
+    );
+
+    expect(controller().receiveRemoteMessage(delayed), isTrue);
+    expect(state().couple.messages.first.id, 'delayed-old');
+    expect(state().couple.messages.last.text, 'Yeni mesaj');
+  });
+
+  test('uzak durum uygulanırken yerel mesaj ve kapsüller korunur', () {
+    final ChatMessage local = controller().sendMessage('Yerelde kalsın')!;
+    final DateTime now = DateTime(2026, 11, 20);
+    final String scoreKey = CoupleState.rubricKey(
+      CouplePartner.yusufId,
+      StatKey.willpower,
+      now,
+    );
+    final GameState remote = GameState.dual(
+      partners: state().partners,
+      couple: CoupleState(
+        messages: <ChatMessage>[
+          ChatMessage(
+            id: 'remote-only',
+            senderId: CouplePartner.ceydaId,
+            createdAt: now,
+            text: 'Karşı telefondan',
+          ),
+        ],
+        rubricScores: <String, int>{scoreKey: 3},
+      ),
+    );
+
+    controller().applyRemoteState(remote);
+
+    expect(state().couple.messageById(local.id), isNotNull);
+    expect(state().couple.messageById('remote-only'), isNotNull);
+    expect(state().couple.rubricScores[scoreKey], 3);
   });
 
   test('restartCoupleJourney tohumu yeniden yazar', () async {

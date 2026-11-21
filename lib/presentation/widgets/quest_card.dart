@@ -54,7 +54,11 @@ class QuestCard extends StatelessWidget {
                         spacing: AppSpacing.xs,
                         runSpacing: AppSpacing.xs,
                         children: <Widget>[
-                          InfoPill(label: quest.stat.code, color: color, dense: true),
+                          InfoPill(
+                            label: quest.stat.code,
+                            color: color,
+                            dense: true,
+                          ),
                           if (quest.isMicro)
                             const InfoPill(
                               label: 'Mikro mod',
@@ -78,8 +82,9 @@ class QuestCard extends StatelessWidget {
                         quest.effectiveSummary,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodySmall
-                            .copyWith(color: AppColors.textSecondary),
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ],
                   ),
@@ -122,8 +127,9 @@ class QuestCard extends StatelessWidget {
                     children: <Widget>[
                       Text(
                         done ? 'Kazanıldı' : 'Ödül',
-                        style: AppTypography.label
-                            .copyWith(color: AppColors.textTertiary),
+                        style: AppTypography.label.copyWith(
+                          color: AppColors.textTertiary,
+                        ),
                       ),
                       const SizedBox(height: AppSpacing.xxs),
                       Wrap(
@@ -132,16 +138,19 @@ class QuestCard extends StatelessWidget {
                         children: <Widget>[
                           Text(
                             '+${FormatX.number(xpReward)} XP',
-                            style: AppTypography.numericLarge
-                                .copyWith(color: color, fontSize: 22),
+                            style: AppTypography.numericLarge.copyWith(
+                              color: color,
+                              fontSize: 22,
+                            ),
                           ),
                           if (bonusPercent > 0)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 2),
                               child: Text(
                                 '%$bonusPercent bonus',
-                                style: AppTypography.caption
-                                    .copyWith(color: AppColors.textTertiary),
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.textTertiary,
+                                ),
                               ),
                             ),
                         ],

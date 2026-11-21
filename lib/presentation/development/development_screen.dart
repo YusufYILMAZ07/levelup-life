@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/game_controller.dart';
@@ -50,6 +51,7 @@ class _DevelopmentScreenState extends ConsumerState<DevelopmentScreen> {
     final RubricOutcome outcome = ref
         .read(gameProvider.notifier)
         .ratePillar(pillar: pillar, score: score);
+    HapticFeedback.lightImpact();
     final String message = outcome.hasSynergy
         ? 'Sinerji! İkiniz de ${DevelopmentRubric.forStat(pillar).title} '
               'alanında 2+ puan aldınız · +${outcome.synergyXp} XP'
@@ -83,6 +85,9 @@ class _DevelopmentScreenState extends ConsumerState<DevelopmentScreen> {
               maxWidth: AppConstants.maxContentWidth,
             ),
             child: ListView(
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.xxl,
                 AppSpacing.lg,

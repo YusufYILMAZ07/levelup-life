@@ -5,6 +5,7 @@ import '../../application/game_controller.dart';
 import '../../application/game_state.dart';
 import '../../core/theme/theme.dart';
 import '../../domain/entities/entities.dart';
+import '../../services/app_settings.dart';
 import '../birthday/birthday_modal.dart';
 import 'partner_avatar.dart';
 
@@ -43,28 +44,32 @@ class CoupleTopBar extends ConsumerWidget {
     final GameState state = ref.watch(gameProvider);
     if (!state.isCoupleEdition) return const SizedBox.shrink();
     final DateTime at = now ?? DateTime.now();
+    final AppSettings settings = ref.watch(appSettingsProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Row(
-          children: <Widget>[
-            for (final String id in CouplePartner.ids) ...<Widget>[
-              Expanded(
-                child: _PartnerSegment(
-                  partnerId: id,
-                  selected: state.activePartnerId == id,
-                  level: state.partnerData(id)?.levelNumber ?? 1,
-                  xpToday: state.xpTodayFor(id, at),
-                  onTap: () =>
-                      ref.read(gameProvider.notifier).switchPartner(id),
+        if (settings.lockToDeviceOwner)
+          _LockedIdentityPill(partnerId: settings.deviceRole)
+        else
+          Row(
+            children: <Widget>[
+              for (final String id in CouplePartner.ids) ...<Widget>[
+                Expanded(
+                  child: _PartnerSegment(
+                    partnerId: id,
+                    selected: state.activePartnerId == id,
+                    level: state.partnerData(id)?.levelNumber ?? 1,
+                    xpToday: state.xpTodayFor(id, at),
+                    onTap: () =>
+                        ref.read(gameProvider.notifier).switchPartner(id),
+                  ),
                 ),
-              ),
-              if (id != CouplePartner.ids.last)
-                const SizedBox(width: AppSpacing.sm),
+                if (id != CouplePartner.ids.last)
+                  const SizedBox(width: AppSpacing.sm),
+              ],
             ],
-          ],
-        ),
+          ),
         const SizedBox(height: AppSpacing.sm),
         Row(
           children: <Widget>[
@@ -128,6 +133,50 @@ class CoupleTopBar extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _LockedIdentityPill extends StatelessWidget {
+  const _LockedIdentityPill({required this.partnerId});
+
+  final String partnerId;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color accent = CouplePalette.colorOf(partnerId);
+    final String other = CouplePartner.other(partnerId);
+    return Container(
+      key: const Key('locked-identity-pill'),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm + 1,
+      ),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: AppRadii.pillAll,
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        children: <Widget>[
+          PartnerAvatar(partnerId: partnerId, size: 28),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              '${CouplePalette.nameOf(partnerId)} '
+              '${CouplePalette.emojiOf(partnerId)} · '
+              '${CouplePalette.nameOf(other)} ile Bağlı 🟢',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.caption.copyWith(
+                color: accent,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          Icon(Icons.lock_rounded, size: 14, color: accent),
+        ],
+      ),
     );
   }
 }

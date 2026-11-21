@@ -7,36 +7,34 @@ LeagueEntry entry(
   int xp, {
   bool isMe = false,
   Archetype archetype = Archetype.scholar,
-}) =>
-    LeagueEntry(
-      userId: id,
-      displayName: 'Oyuncu $id',
-      weeklyXp: xp,
-      level: 10,
-      archetype: archetype,
-      isCurrentUser: isMe,
-    );
+}) => LeagueEntry(
+  userId: id,
+  displayName: 'Oyuncu $id',
+  weeklyXp: xp,
+  level: 10,
+  archetype: archetype,
+  isCurrentUser: isMe,
+);
 
 void main() {
   final DateTime weekStart = DateTime(2026, 11, 9);
 
   League buildLeague() => League(
-        id: 'league-1',
-        tier: LeagueTier.silver,
-        weekStart: weekStart,
-        entries: <LeagueEntry>[
-          entry('u1', 400),
-          entry('u2', 900),
-          entry('u3', 650, isMe: true),
-          entry('u4', 100),
-          entry('u5', 650),
-        ],
-      );
+    id: 'league-1',
+    tier: LeagueTier.silver,
+    weekStart: weekStart,
+    entries: <LeagueEntry>[
+      entry('u1', 400),
+      entry('u2', 900),
+      entry('u3', 650, isMe: true),
+      entry('u4', 100),
+      entry('u5', 650),
+    ],
+  );
 
   group('ranking', () {
     test('XP azalan sıralanır, eşitlikte userId alfabetik', () {
-      final List<String> order = buildLeague()
-          .ranking
+      final List<String> order = buildLeague().ranking
           .map((LeagueEntry e) => e.userId)
           .toList();
 
@@ -82,8 +80,9 @@ void main() {
   group('applyXp', () {
     test('sadece hedef kullanıcıyı günceller ve sıralamayı yeniden kurar', () {
       final League league = buildLeague().applyXp('u4', 700);
-      final List<String> order =
-          league.ranking.map((LeagueEntry e) => e.userId).toList();
+      final List<String> order = league.ranking
+          .map((LeagueEntry e) => e.userId)
+          .toList();
 
       expect(order.first, 'u2');
       expect(order, contains('u4'));

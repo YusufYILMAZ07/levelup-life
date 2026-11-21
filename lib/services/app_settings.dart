@@ -24,11 +24,15 @@ final class AppSettings {
     this.supabaseAnonKey = '',
     this.roomCode = '',
     this.deviceRole = CouplePartner.yusufId,
+    this.lockToDeviceOwner = false,
+    this.deviceOwnerConfigured = false,
+    this.oneSignalAppId = '',
+    this.oneSignalRestApiKey = '',
     this.avatarSources = const <String, String>{},
   });
 
-  /// Ceyda'nın doğum günü — ilk açılışta hatırlatılan varsayılan PIN.
-  static const String defaultPin = '1402';
+  /// Yıldönümümüz (31 Ocak) — ilk açılışta hatırlatılan varsayılan PIN.
+  static const String defaultPin = '3101';
 
   /// `couple_rooms.room_code` için önerilen varsayılan oda.
   static const String defaultRoomCode = 'YUSUF-CEYDA-2026';
@@ -45,12 +49,29 @@ final class AppSettings {
   /// Bu telefonun sahibi: `yusuf` veya `ceyda`.
   final String deviceRole;
 
+  /// `true` → aktif profil cihaz sahibine kilitlenir; yanlış isimle mesaj
+  /// gönderilmesi veya puan girilmesi engellenir.
+  final bool lockToDeviceOwner;
+
+  /// Kullanıcı "Bu telefon kimin?" seçimini en az bir kez yaptı mı?
+  /// `false` ise ilk açılışta nazik bir karşılama istemi gösterilir.
+  final bool deviceOwnerConfigured;
+
+  /// OneSignal uygulama kimliği (kapalıyken push için).
+  final String oneSignalAppId;
+
+  /// OneSignal REST API anahtarı — yalnızca cihazda saklanır.
+  final String oneSignalRestApiKey;
+
   final Map<String, String> avatarSources;
 
   bool get isCloudConfigured =>
       supabaseUrl.trim().isNotEmpty &&
       supabaseAnonKey.trim().isNotEmpty &&
       roomCode.trim().isNotEmpty;
+
+  bool get isPushConfigured =>
+      oneSignalAppId.trim().isNotEmpty && oneSignalRestApiKey.trim().isNotEmpty;
 
   String avatarOf(String partnerId) => avatarSources[partnerId] ?? '';
 
@@ -80,6 +101,10 @@ final class AppSettings {
     String? supabaseAnonKey,
     String? roomCode,
     String? deviceRole,
+    bool? lockToDeviceOwner,
+    bool? deviceOwnerConfigured,
+    String? oneSignalAppId,
+    String? oneSignalRestApiKey,
     Map<String, String>? avatarSources,
   }) => AppSettings(
     messageNotifications: messageNotifications ?? this.messageNotifications,
@@ -91,6 +116,10 @@ final class AppSettings {
     supabaseAnonKey: supabaseAnonKey ?? this.supabaseAnonKey,
     roomCode: roomCode ?? this.roomCode,
     deviceRole: deviceRole ?? this.deviceRole,
+    lockToDeviceOwner: lockToDeviceOwner ?? this.lockToDeviceOwner,
+    deviceOwnerConfigured: deviceOwnerConfigured ?? this.deviceOwnerConfigured,
+    oneSignalAppId: oneSignalAppId ?? this.oneSignalAppId,
+    oneSignalRestApiKey: oneSignalRestApiKey ?? this.oneSignalRestApiKey,
     avatarSources: avatarSources ?? this.avatarSources,
   );
 
@@ -115,6 +144,10 @@ final class AppSettings {
     'supabase_anon_key': supabaseAnonKey,
     'room_code': roomCode,
     'device_role': deviceRole,
+    'lock_to_device_owner': lockToDeviceOwner,
+    'device_owner_configured': deviceOwnerConfigured,
+    'onesignal_app_id': oneSignalAppId,
+    'onesignal_rest_api_key': oneSignalRestApiKey,
     'avatar_sources': avatarSources,
   };
 
@@ -144,6 +177,10 @@ final class AppSettings {
       deviceRole: json['device_role']?.toString() == CouplePartner.ceydaId
           ? CouplePartner.ceydaId
           : CouplePartner.yusufId,
+      lockToDeviceOwner: _asBool(json['lock_to_device_owner'], false),
+      deviceOwnerConfigured: _asBool(json['device_owner_configured'], false),
+      oneSignalAppId: json['onesignal_app_id']?.toString() ?? '',
+      oneSignalRestApiKey: json['onesignal_rest_api_key']?.toString() ?? '',
       avatarSources: avatars,
     );
   }
@@ -269,6 +306,37 @@ final class AppSettingsController extends Notifier<AppSettings> {
     if (!CouplePartner.isValid(partnerId)) return;
     _update(state.copyWith(deviceRole: partnerId));
   }
+
+  /// "📱 Bu Telefon Kimin?" seçimi: sahibi belirler, kimliği kilitler ve
+  /// ilk kurulum isteminin bir daha gösterilmemesini işaretler.
+  void configureDeviceOwner(String partnerId) {
+    if (!CouplePartner.isValid(partnerId)) return;
+    _update(
+      state.copyWith(
+        deviceRole: partnerId,
+        lockToDeviceOwner: true,
+        deviceOwnerConfigured: true,
+      ),
+    );
+  }
+
+  void setLockToDeviceOwner(bool enabled) => _update(
+    state.copyWith(lockToDeviceOwner: enabled, deviceOwnerConfigured: true),
+  );
+
+  void markDeviceOwnerConfigured() =>
+      _update(state.copyWith(deviceOwnerConfigured: true));
+
+  void savePushConfig({required String appId, required String restApiKey}) =>
+      _update(
+        state.copyWith(
+          oneSignalAppId: appId.trim(),
+          oneSignalRestApiKey: restApiKey.trim(),
+        ),
+      );
+
+  void clearPushConfig() =>
+      _update(state.copyWith(oneSignalAppId: '', oneSignalRestApiKey: ''));
 
   void saveCloudConfig({
     required String url,

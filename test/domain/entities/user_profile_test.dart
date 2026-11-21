@@ -9,12 +9,12 @@ import 'package:levelup_life/domain/entities/user_profile.dart';
 import 'package:levelup_life/domain/services/xp_engine.dart';
 
 UserProfile buildProfile() => UserProfile.starter(
-      id: 'user-1',
-      displayName: 'Yusuf Kaya',
-      role: LifeRole.student,
-      focusStats: <StatKey>{StatKey.intelligence, StatKey.willpower},
-      createdAt: DateTime(2026, 11, 1),
-    );
+  id: 'user-1',
+  displayName: 'Yusuf Kaya',
+  role: LifeRole.student,
+  focusStats: <StatKey>{StatKey.intelligence, StatKey.willpower},
+  createdAt: DateTime(2026, 11, 1),
+);
 
 void main() {
   group('starter', () {
@@ -38,8 +38,10 @@ void main() {
     });
 
     test('boş isim Gezgin olur', () {
-      final UserProfile profile =
-          UserProfile.starter(id: 'x', displayName: '   ');
+      final UserProfile profile = UserProfile.starter(
+        id: 'x',
+        displayName: '   ',
+      );
 
       expect(profile.displayName, 'Gezgin');
       expect(profile.firstName, 'Gezgin');
@@ -100,8 +102,9 @@ void main() {
     });
 
     test('kuşak değişimi tierChanged ile bildirilir', () {
-      final UserProfile almostJourneyman = buildProfile()
-          .copyWith(totalXp: XpEngine.totalXpForLevel(15) - 1);
+      final UserProfile almostJourneyman = buildProfile().copyWith(
+        totalXp: XpEngine.totalXpForLevel(15) - 1,
+      );
       final XpAward award = almostJourneyman.completeQuest(
         stat: StatKey.intelligence,
         xp: 5,
@@ -156,8 +159,9 @@ void main() {
     });
 
     test('withFocusStats arketipi yeniden önerir', () {
-      final UserProfile profile =
-          buildProfile().withFocusStats(<StatKey>{StatKey.strength});
+      final UserProfile profile = buildProfile().withFocusStats(<StatKey>{
+        StatKey.strength,
+      });
 
       expect(profile.archetype, Archetype.athlete);
       expect(profile.focusStats, <StatKey>{StatKey.strength});
@@ -220,8 +224,9 @@ void main() {
     });
 
     test('boş JSON güvenli varsayılanlar üretir', () {
-      final UserProfile profile =
-          UserProfile.fromJson(const <String, dynamic>{});
+      final UserProfile profile = UserProfile.fromJson(
+        const <String, dynamic>{},
+      );
 
       expect(profile.displayName, 'Gezgin');
       expect(profile.role, LifeRole.student);
@@ -234,13 +239,15 @@ void main() {
 
     test('günlük hedef aralığa kırpılır', () {
       expect(
-        UserProfile.fromJson(<String, dynamic>{'daily_quest_target': 99})
-            .dailyQuestTarget,
+        UserProfile.fromJson(<String, dynamic>{
+          'daily_quest_target': 99,
+        }).dailyQuestTarget,
         UserProfile.maxDailyQuestTarget,
       );
       expect(
-        UserProfile.fromJson(<String, dynamic>{'daily_quest_target': 0})
-            .dailyQuestTarget,
+        UserProfile.fromJson(<String, dynamic>{
+          'daily_quest_target': 0,
+        }).dailyQuestTarget,
         UserProfile.minDailyQuestTarget,
       );
     });

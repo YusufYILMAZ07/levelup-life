@@ -10,6 +10,7 @@ import 'core/theme/theme.dart';
 import 'data/game_store.dart';
 import 'presentation/onboarding/onboarding_screen.dart';
 import 'presentation/shell/app_shell.dart';
+import 'presentation/widgets/in_app_notification_banner.dart';
 import 'presentation/widgets/pin_lock_screen.dart';
 import 'services/app_settings.dart';
 
@@ -51,6 +52,9 @@ class LevelUpApp extends StatelessWidget {
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
+      scrollBehavior: const AppScrollBehavior(),
+      builder: (BuildContext context, Widget? child) =>
+          InAppNotificationHost(child: child ?? const SizedBox.shrink()),
       home: const AppServices(child: _RootGate()),
     );
   }

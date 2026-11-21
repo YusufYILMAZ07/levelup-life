@@ -20,7 +20,8 @@ enum DailyTempo {
     label: 'Dengeli',
     minutes: 45,
     questTarget: 4,
-    description: 'Günde 45 dakika — okul/iş ile gelişim arasında sağlıklı denge.',
+    description:
+        'Günde 45 dakika — okul/iş ile gelişim arasında sağlıklı denge.',
   ),
   hardcore(
     code: 'hardcore',
@@ -232,27 +233,28 @@ final class UserSetup {
   /// avatarı alır (cihazlar arası tutarlılık, backend gerekmeden).
   UserProfile toProfile({DateTime? now, String id = 'local-player'}) {
     final DateTime timestamp = now ?? DateTime.now();
-    final String name = displayName.trim().isEmpty ? 'Gezgin' : displayName.trim();
+    final String name = displayName.trim().isEmpty
+        ? 'Gezgin'
+        : displayName.trim();
     int seed = 7;
     for (final int rune in name.runes) {
       seed = (seed * 31 + rune) & 0x7FFFFFFF;
     }
     return UserProfile.starter(
-      id: id,
-      displayName: name,
-      role: role,
-      focusStats: focusStats,
-      archetype: archetype,
-      createdAt: timestamp,
-    ).completeOnboarding(
-      role: role,
-      focusStats: focusStats,
-      archetype: archetype,
-      dailyQuestTarget: dailyQuestTarget,
-    ).copyWith(
-      avatarSeed: seed % 1000,
-      lastActiveAt: timestamp,
-    );
+          id: id,
+          displayName: name,
+          role: role,
+          focusStats: focusStats,
+          archetype: archetype,
+          createdAt: timestamp,
+        )
+        .completeOnboarding(
+          role: role,
+          focusStats: focusStats,
+          archetype: archetype,
+          dailyQuestTarget: dailyQuestTarget,
+        )
+        .copyWith(avatarSeed: seed % 1000, lastActiveAt: timestamp);
   }
 
   UserSetup copyWith({
@@ -287,15 +289,15 @@ final class UserSetup {
   // ── Serileştirme ─────────────────────────────────────────────────────────
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'display_name': displayName,
-        'role': role.code,
-        'study_field': studyField,
-        'grade_year': gradeYear,
-        'sector': sector,
-        'workload': workload.code,
-        'goals': <String>[for (final GoalType goal in goals) goal.code],
-        'tempo': tempo.code,
-      };
+    'display_name': displayName,
+    'role': role.code,
+    'study_field': studyField,
+    'grade_year': gradeYear,
+    'sector': sector,
+    'workload': workload.code,
+    'goals': <String>[for (final GoalType goal in goals) goal.code],
+    'tempo': tempo.code,
+  };
 
   factory UserSetup.fromJson(Map<String, dynamic> json) {
     final Set<GoalType> goals = <GoalType>{};
@@ -332,17 +334,18 @@ final class UserSetup {
 
   @override
   int get hashCode => Object.hash(
-        displayName,
-        role,
-        studyField,
-        gradeYear,
-        sector,
-        workload,
-        Object.hashAllUnordered(goals),
-        tempo,
-      );
+    displayName,
+    role,
+    studyField,
+    gradeYear,
+    sector,
+    workload,
+    Object.hashAllUnordered(goals),
+    tempo,
+  );
 
   @override
-  String toString() => 'UserSetup($displayName · ${role.label} · $trackLabel · '
+  String toString() =>
+      'UserSetup($displayName · ${role.label} · $trackLabel · '
       '${goals.length} hedef · ${tempo.label})';
 }

@@ -49,9 +49,8 @@ final class WeeklyReport {
   DateTime get weekEnd => DateX.shiftDays(DateX.dateOnly(weekStart), 6);
 
   /// Hedefin ne kadarı tamamlandı (0.0 → 1.0).
-  double get completionRate => targetQuests <= 0
-      ? 0
-      : (questsCompleted / targetQuests).clamp(0.0, 1.0);
+  double get completionRate =>
+      targetQuests <= 0 ? 0 : (questsCompleted / targetQuests).clamp(0.0, 1.0);
 
   int get completionPercent => (completionRate * 100).round();
 
@@ -85,53 +84,51 @@ final class WeeklyReport {
     String? questlineId,
     int? questlineDaysCompleted,
     String? insight,
-  }) =>
-      WeeklyReport(
-        weekStart: weekStart,
-        xpEarned: xpEarned ?? this.xpEarned,
-        questsCompleted: questsCompleted ?? this.questsCompleted,
-        targetQuests: targetQuests ?? this.targetQuests,
-        activeDays: activeDays ?? this.activeDays,
-        streakAtEnd: streakAtEnd ?? this.streakAtEnd,
-        strongestStat: strongestStat ?? this.strongestStat,
-        weakestStat: weakestStat ?? this.weakestStat,
-        questlineId: questlineId ?? this.questlineId,
-        questlineDaysCompleted:
-            questlineDaysCompleted ?? this.questlineDaysCompleted,
-        insight: insight ?? this.insight,
-      );
+  }) => WeeklyReport(
+    weekStart: weekStart,
+    xpEarned: xpEarned ?? this.xpEarned,
+    questsCompleted: questsCompleted ?? this.questsCompleted,
+    targetQuests: targetQuests ?? this.targetQuests,
+    activeDays: activeDays ?? this.activeDays,
+    streakAtEnd: streakAtEnd ?? this.streakAtEnd,
+    strongestStat: strongestStat ?? this.strongestStat,
+    weakestStat: weakestStat ?? this.weakestStat,
+    questlineId: questlineId ?? this.questlineId,
+    questlineDaysCompleted:
+        questlineDaysCompleted ?? this.questlineDaysCompleted,
+    insight: insight ?? this.insight,
+  );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'week_start': DateX.isoDay(weekStart),
-        'xp_earned': xpEarned,
-        'quests_completed': questsCompleted,
-        'target_quests': targetQuests,
-        'active_days': activeDays,
-        'streak_at_end': streakAtEnd,
-        'strongest_stat': strongestStat?.code,
-        'weakest_stat': weakestStat?.code,
-        'questline_id': questlineId,
-        'questline_days_completed': questlineDaysCompleted,
-        'insight': insight,
-      };
+    'week_start': DateX.isoDay(weekStart),
+    'xp_earned': xpEarned,
+    'quests_completed': questsCompleted,
+    'target_quests': targetQuests,
+    'active_days': activeDays,
+    'streak_at_end': streakAtEnd,
+    'strongest_stat': strongestStat?.code,
+    'weakest_stat': weakestStat?.code,
+    'questline_id': questlineId,
+    'questline_days_completed': questlineDaysCompleted,
+    'insight': insight,
+  };
 
   factory WeeklyReport.fromJson(Map<String, dynamic> json) => WeeklyReport(
-        weekStart: DateX.parseIsoDay(JsonX.asString(json['week_start'])) ??
-            DateX.today(),
-        xpEarned: JsonX.asInt(json['xp_earned']),
-        questsCompleted: JsonX.asInt(json['quests_completed']),
-        targetQuests: JsonX.asInt(json['target_quests'], fallback: 21),
-        activeDays: JsonX.asInt(json['active_days']).clamp(0, 7),
-        streakAtEnd: JsonX.asInt(json['streak_at_end']),
-        strongestStat:
-            StatKey.tryFromCode(JsonX.asString(json['strongest_stat'])),
-        weakestStat: StatKey.tryFromCode(JsonX.asString(json['weakest_stat'])),
-        questlineId: json['questline_id'] == null
-            ? null
-            : JsonX.asString(json['questline_id']),
-        questlineDaysCompleted: JsonX.asInt(json['questline_days_completed']),
-        insight: json['insight'] == null ? null : JsonX.asString(json['insight']),
-      );
+    weekStart:
+        DateX.parseIsoDay(JsonX.asString(json['week_start'])) ?? DateX.today(),
+    xpEarned: JsonX.asInt(json['xp_earned']),
+    questsCompleted: JsonX.asInt(json['quests_completed']),
+    targetQuests: JsonX.asInt(json['target_quests'], fallback: 21),
+    activeDays: JsonX.asInt(json['active_days']).clamp(0, 7),
+    streakAtEnd: JsonX.asInt(json['streak_at_end']),
+    strongestStat: StatKey.tryFromCode(JsonX.asString(json['strongest_stat'])),
+    weakestStat: StatKey.tryFromCode(JsonX.asString(json['weakest_stat'])),
+    questlineId: json['questline_id'] == null
+        ? null
+        : JsonX.asString(json['questline_id']),
+    questlineDaysCompleted: JsonX.asInt(json['questline_days_completed']),
+    insight: json['insight'] == null ? null : JsonX.asString(json['insight']),
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -150,20 +147,21 @@ final class WeeklyReport {
 
   @override
   int get hashCode => Object.hash(
-        weekStart,
-        xpEarned,
-        questsCompleted,
-        targetQuests,
-        activeDays,
-        streakAtEnd,
-        strongestStat,
-        weakestStat,
-        questlineId,
-        questlineDaysCompleted,
-        insight,
-      );
+    weekStart,
+    xpEarned,
+    questsCompleted,
+    targetQuests,
+    activeDays,
+    streakAtEnd,
+    strongestStat,
+    weakestStat,
+    questlineId,
+    questlineDaysCompleted,
+    insight,
+  );
 
   @override
-  String toString() => 'WeeklyReport(${DateX.isoDay(weekStart)} · $xpEarned XP · '
+  String toString() =>
+      'WeeklyReport(${DateX.isoDay(weekStart)} · $xpEarned XP · '
       '$questsCompleted/$targetQuests görev · $activeDays/7 gün)';
 }

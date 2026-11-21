@@ -28,28 +28,30 @@ final class StatProgress {
 
   /// Görev tamamlandığında XP'yi ekler ve sayaçyı artırır.
   StatProgress recordQuest(int amount) => StatProgress(
-        stat: stat,
-        xp: xp + math.max(0, amount),
-        questsCompleted: questsCompleted + 1,
-      );
+    stat: stat,
+    xp: xp + math.max(0, amount),
+    questsCompleted: questsCompleted + 1,
+  );
 
   StatProgress copyWith({int? xp, int? questsCompleted}) => StatProgress(
-        stat: stat,
-        xp: xp ?? this.xp,
-        questsCompleted: questsCompleted ?? this.questsCompleted,
-      );
+    stat: stat,
+    xp: xp ?? this.xp,
+    questsCompleted: questsCompleted ?? this.questsCompleted,
+  );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'stat': stat.code,
-        'xp': xp,
-        'quests_completed': questsCompleted,
-      };
+    'stat': stat.code,
+    'xp': xp,
+    'quests_completed': questsCompleted,
+  };
 
   factory StatProgress.fromJson(Map<String, dynamic> json) => StatProgress(
-        stat: StatKey.tryFromCode(JsonX.asString(json['stat'])) ?? StatKey.intelligence,
-        xp: JsonX.asInt(json['xp']),
-        questsCompleted: JsonX.asInt(json['quests_completed']),
-      );
+    stat:
+        StatKey.tryFromCode(JsonX.asString(json['stat'])) ??
+        StatKey.intelligence,
+    xp: JsonX.asInt(json['xp']),
+    questsCompleted: JsonX.asInt(json['quests_completed']),
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -62,7 +64,8 @@ final class StatProgress {
   int get hashCode => Object.hash(stat, xp, questsCompleted);
 
   @override
-  String toString() => 'StatProgress(${stat.code}: $xp XP, $questsCompleted görev)';
+  String toString() =>
+      'StatProgress(${stat.code}: $xp XP, $questsCompleted görev)';
 }
 
 /// Karakterin 5 eksenli XP tablosu.
@@ -111,23 +114,29 @@ final class RpgStats {
     return RpgStats.fromProgress(progress);
   }
 
-  StatProgress operator [](StatKey stat) => _byStat[stat] ?? StatProgress(stat: stat);
+  StatProgress operator [](StatKey stat) =>
+      _byStat[stat] ?? StatProgress(stat: stat);
 
   /// Radar çizimi için sabit sırada (INT → WIL) liste.
-  List<StatProgress> get ordered =>
-      <StatProgress>[for (final StatKey stat in StatKey.values) this[stat]];
+  List<StatProgress> get ordered => <StatProgress>[
+    for (final StatKey stat in StatKey.values) this[stat],
+  ];
 
-  Map<StatKey, StatProgress> get all => Map<StatKey, StatProgress>.unmodifiable(_byStat);
+  Map<StatKey, StatProgress> get all =>
+      Map<StatKey, StatProgress>.unmodifiable(_byStat);
 
   int get totalXp =>
       ordered.fold<int>(0, (int sum, StatProgress item) => sum + item.xp);
 
-  int get totalQuests =>
-      ordered.fold<int>(0, (int sum, StatProgress item) => sum + item.questsCompleted);
+  int get totalQuests => ordered.fold<int>(
+    0,
+    (int sum, StatProgress item) => sum + item.questsCompleted,
+  );
 
   /// Radar grafiğinin 5 köşesi (0-100).
-  List<double> get radarValues =>
-      <double>[for (final StatProgress item in ordered) item.radarValue];
+  List<double> get radarValues => <double>[
+    for (final StatProgress item in ordered) item.radarValue,
+  ];
 
   double get averageRadarValue =>
       radarValues.fold<double>(0, (double sum, double value) => sum + value) /
@@ -164,15 +173,15 @@ final class RpgStats {
       _replace(stat, this[stat].recordQuest(amount));
 
   RpgStats _replace(StatKey stat, StatProgress next) => RpgStats._(
-        Map<StatKey, StatProgress>.unmodifiable(<StatKey, StatProgress>{
-          ..._byStat,
-          stat: next,
-        }),
-      );
+    Map<StatKey, StatProgress>.unmodifiable(<StatKey, StatProgress>{
+      ..._byStat,
+      stat: next,
+    }),
+  );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        for (final StatProgress item in ordered) item.stat.code: item.toJson(),
-      };
+    for (final StatProgress item in ordered) item.stat.code: item.toJson(),
+  };
 
   @override
   bool operator ==(Object other) {
@@ -185,8 +194,8 @@ final class RpgStats {
 
   @override
   int get hashCode => Object.hashAll(<StatProgress>[
-        for (final StatKey stat in StatKey.values) this[stat],
-      ]);
+    for (final StatKey stat in StatKey.values) this[stat],
+  ]);
 
   @override
   String toString() => 'RpgStats(totalXp: $totalXp, radar: $radarValues)';

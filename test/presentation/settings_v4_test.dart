@@ -35,6 +35,12 @@ void main() {
     await openSettings(tester);
 
     expect(find.text('Profil fotoğrafları'), findsOneWidget);
+    expect(find.text('📱 Bu Telefon Kimin?'), findsOneWidget);
+    expect(find.byKey(const Key('device-owner-yusuf')), findsOneWidget);
+    expect(find.byKey(const Key('device-owner-ceyda')), findsOneWidget);
+    expect(find.byKey(const Key('device-test-mode')), findsOneWidget);
+    expect(find.byKey(const Key('onesignal-app-id')), findsOneWidget);
+    expect(find.byKey(const Key('onesignal-rest-key')), findsOneWidget);
     expect(find.byKey(const Key('avatar-yusuf')), findsOneWidget);
     expect(find.byKey(const Key('avatar-ceyda')), findsOneWidget);
     expect(find.byKey(const Key('notif-messages')), findsOneWidget);
