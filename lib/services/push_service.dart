@@ -1,8 +1,6 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:onesignal_flutter/onesignal_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/entities/entities.dart';
 import 'app_settings.dart';
@@ -19,81 +17,88 @@ final class PushResult {
   final bool ok;
   final int statusCode;
   final String message;
+
+  static const PushResult notConfigured = PushResult(
+    ok: false,
+    statusCode: 0,
+    message: 'OneSignal App ID gerekli 🔔',
+  );
 }
 
-/// OneSignal REST API gövdesini üreten saf yardımcılar (test edilebilir).
+/// Supabase Edge Function'a gönderilen gövdeyi üreten saf yardımcılar.
+///
+/// **v6 güvenlik değişikliği:** OneSignal REST API anahtarı artık istemcide
+/// değildir. İstemci yalnızca `send-couple-push` fonksiyonunu çağırır; Edge
+/// Function oturum sahibini doğrular, oda üyeliğini kontrol eder ve OneSignal
+/// isteğini sunucu tarafındaki `ONESIGNAL_REST_API_KEY` ile yapar.
 abstract final class PushPayloads {
+  /// Edge Function adı.
+  static const String functionName = 'send-couple-push';
+
   static Map<String, dynamic> chatMessage({
-    required String appId,
     required String recipientId,
+    required String senderId,
+    required String roomCode,
     required ChatMessage message,
   }) {
     final String raw = NotificationTexts.messageBody(message).trim();
     final String preview = raw.length > 140 ? '${raw.substring(0, 137)}…' : raw;
     return <String, dynamic>{
-      'app_id': appId,
-      'include_aliases': <String, dynamic>{
-        'external_id': <String>[recipientId],
-      },
-      'target_channel': 'push',
-      'headings': <String, String>{
-        'tr': NotificationTexts.partnerTitle(message.senderId),
-        'en': NotificationTexts.partnerTitle(message.senderId),
-      },
-      'contents': <String, String>{'tr': preview, 'en': preview},
+      'recipient_id': recipientId,
+      'sender_id': senderId,
+      'room_code': roomCode,
+      'type': 'chat',
+      'message_id': message.id,
+      'headings': NotificationTexts.partnerTitle(message.senderId),
+      'contents': preview,
       'data': <String, dynamic>{
         'type': 'chat',
         'message_id': message.id,
         'sender_id': message.senderId,
         'route': 'chat',
       },
-      'ios_badgeType': 'Increase',
-      'ios_badgeCount': 1,
     };
   }
 
   static Map<String, dynamic> test({
-    required String appId,
     required String recipientId,
+    required String senderId,
+    required String roomCode,
     required String senderName,
   }) => <String, dynamic>{
-    'app_id': appId,
-    'include_aliases': <String, dynamic>{
-      'external_id': <String>[recipientId],
-    },
-    'target_channel': 'push',
-    'headings': <String, String>{
-      'tr': 'LevelUp Life · OneSignal 💞',
-      'en': 'LevelUp Life · OneSignal 💞',
-    },
-    'contents': <String, String>{
-      'tr': '$senderName sana kapalıyken de ulaşabilir 🔔',
-      'en': '$senderName sana kapalıyken de ulaşabilir 🔔',
-    },
+    'recipient_id': recipientId,
+    'sender_id': senderId,
+    'room_code': roomCode,
+    'type': 'test',
+    'headings': 'LevelUp Life · OneSignal 💞',
+    'contents': '$senderName sana kapalıyken de ulaşabilir 🔔',
     'data': <String, dynamic>{'type': 'test', 'route': 'chat'},
   };
 }
 
-/// iOS kapalıyken / arka plandayken OneSignal üzerinden garantili push.
+/// iOS/Android kapalıyken OneSignal üzerinden garantili push.
 ///
-/// * Web, test ve eksik yapılandırmada **no-op** çalışır; hiçbir ağ isteği
-///   yapmaz ve uygulamayı asla çökertmez.
-/// * iOS'ta uygulama açılışında OneSignal başlatılır, izin istenir ve cihaz
-///   sahibi `external_id` olarak oturum açar (`yusuf` / `ceyda`).
-/// * Mesaj, fotoğraf, video ve dürtme aynı `ChatMessage` üzerinden gittiği
-///   için tek bir push yolu vardır.
+/// * Web, test ve eksik yapılandırmada **no-op** çalışır; ağ isteği yapmaz ve
+///   uygulamayı asla çökertmez.
+/// * Uygulama açılışında OneSignal başlatılır, izin istenir ve cihaz sahibi
+///   `external_id` olarak oturum açar (`yusuf` / `ceyda`).
+/// * Gönderim [PushPayloads.functionName] Edge Function'ı üzerinden yapılır.
 ///
 /// Not: Gerçek teslimat için OneSignal panelinde iOS uygulamasına APNs
-/// anahtarının yüklenmiş olması gerekir. Bu, kodla değil Apple Developer /
-/// OneSignal panel ayarıyla yapılan bir dağıtım adımıdır.
+/// anahtarının yüklenmiş olması ve Edge Function secret'larının tanımlı olması
+/// gerekir (README → Push kurulumu).
 final class PushService {
-  PushService({http.Client? client}) : _client = client ?? http.Client();
+  PushService({
+    SupabaseClient? Function()? clientProvider,
+    bool Function()? supabaseReady,
+  }) : _clientProvider = clientProvider ?? (() => Supabase.instance.client),
+       _supabaseReady = supabaseReady ?? _defaultSupabaseReady;
 
   static final PushService instance = PushService();
 
-  static const String endpoint = 'https://api.onesignal.com/notifications';
+  final SupabaseClient? Function() _clientProvider;
+  final bool Function() _supabaseReady;
 
-  final http.Client _client;
   bool _initialized = false;
   bool _clickListenerAttached = false;
   String? _appId;
@@ -109,6 +114,15 @@ final class PushService {
       (defaultTargetPlatform == TargetPlatform.iOS ||
           defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.macOS);
+
+  static bool _defaultSupabaseReady() {
+    try {
+      Supabase.instance.client;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Uygulama açılışında / ayarlar değişince çağrılır.
   Future<bool> initialize(AppSettings settings) async {
@@ -162,8 +176,9 @@ final class PushService {
     return _send(
       settings: settings,
       payload: PushPayloads.chatMessage(
-        appId: settings.oneSignalAppId.trim(),
         recipientId: recipientId,
+        senderId: message.senderId,
+        roomCode: settings.normalizedRoomCode,
         message: message,
       ),
     );
@@ -175,8 +190,9 @@ final class PushService {
     return _send(
       settings: settings,
       payload: PushPayloads.test(
-        appId: settings.oneSignalAppId.trim(),
         recipientId: recipientId,
+        senderId: settings.deviceRole,
+        roomCode: settings.normalizedRoomCode,
         senderName: CouplePartner.displayName(settings.deviceRole),
       ),
     );
@@ -193,39 +209,41 @@ final class PushService {
         message: 'Web’de kapalı uygulama push’u yok · iPhone’da çalıştır.',
       );
     }
-    if (!settings.isPushConfigured) {
+    if (!settings.isPushConfigured) return PushResult.notConfigured;
+    if (!settings.isCloudConfigured) {
       return const PushResult(
         ok: false,
         statusCode: 0,
-        message: 'OneSignal App ID ve REST API anahtarı gerekli 🔔',
+        message: 'Push için önce Supabase bağlantısını kur ☁️',
       );
     }
-    if (!isSupported) {
+    if (!_supabaseReady()) {
       return const PushResult(
         ok: false,
         statusCode: 0,
-        message: 'Bu platformda kapalı uygulama push’u desteklenmiyor.',
+        message: 'Supabase istemcisi hazır değil · Ayarlar’dan bağlan.',
       );
     }
     try {
-      final http.Response response = await _client
-          .post(
-            Uri.parse(endpoint),
-            headers: <String, String>{
-              'Content-Type': 'application/json; charset=utf-8',
-              'Authorization': 'Key ${settings.oneSignalRestApiKey.trim()}',
-            },
-            body: jsonEncode(payload),
-          )
-          .timeout(const Duration(seconds: 12));
-      final bool ok = response.statusCode >= 200 && response.statusCode < 300;
-      lastError = ok ? null : 'HTTP ${response.statusCode}';
+      final SupabaseClient? client = _clientProvider();
+      if (client == null) {
+        return const PushResult(
+          ok: false,
+          statusCode: 0,
+          message: 'Supabase istemcisi hazır değil · Ayarlar’dan bağlan.',
+        );
+      }
+      final FunctionResponse response = await client.functions
+          .invoke(PushPayloads.functionName, body: payload)
+          .timeout(const Duration(seconds: 15));
+      final bool ok = response.status >= 200 && response.status < 300;
+      lastError = ok ? null : 'HTTP ${response.status}';
       return PushResult(
         ok: ok,
-        statusCode: response.statusCode,
+        statusCode: response.status,
         message: ok
-            ? 'Push gönderildi ✅ · HTTP ${response.statusCode}'
-            : 'Push gönderilemedi · HTTP ${response.statusCode}',
+            ? 'Push gönderildi ✅ · HTTP ${response.status}'
+            : 'Push gönderilemedi · HTTP ${response.status}',
       );
     } catch (error) {
       lastError = error.toString();

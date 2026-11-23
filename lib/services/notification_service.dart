@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../core/utils/stable_key.dart';
 import '../domain/entities/entities.dart';
 
 /// Bildirim metinleri — saf fonksiyonlar, plugin olmadan test edilebilir.
@@ -98,9 +100,22 @@ final class NotificationService {
   static const int _testId = 9002;
   static const int _specialDateIdBase = 9200;
 
+  /// Bildirim kimliği aralıkları (namespace).
+  ///
+  /// Uygulama yeniden açıldığında bellek içi bir küme kaybolur; iptal işlemi
+  /// `pendingNotificationRequests()` ile **aralığa göre** yapılır.
+  static const int planIdStart = 2000;
+  static const int planIdSize = 4000;
+  static const int messageIdStart = 10000;
+  static const int messageIdSize = 10000;
+  static const int capsuleIdStart = 20000;
+  static const int capsuleIdSize = 2000;
+  static const int activityIdStart = 30000;
+  static const int activityIdSize = 2000;
+
   FlutterLocalNotificationsPlugin? _plugin;
-  final Set<int> _planIds = <int>{};
   bool _ready = false;
+  bool _permissionRequested = false;
 
   /// Bildirime dokunulduğunda payload'ı uygulamaya taşır.
   ///
@@ -152,11 +167,16 @@ final class NotificationService {
     try {
       tzdata.initializeTimeZones();
       try {
-        // Türkiye tek saat diliminde; cihaz saati plugin'i eklemeden doğru
-        // yerel saatle planlama yapılır.
-        tz.setLocalLocation(tz.getLocation('Europe/Istanbul'));
+        // Cihazın gerçek saat dilimi (v6). Sabit Europe/Istanbul yalnızca son
+        // çare fallback'idir; böylece seyahat/DR dahil doğru saatte planlanır.
+        final String zone = await FlutterTimezone.getLocalTimezone();
+        tz.setLocalLocation(tz.getLocation(zone));
       } catch (_) {
-        // Bilinmeyen bölge → paketin varsayılanı kullanılır.
+        try {
+          tz.setLocalLocation(tz.getLocation('Europe/Istanbul'));
+        } catch (_) {
+          // Bilinmeyen bölge → paketin varsayılanı kullanılır.
+        }
       }
 
       final FlutterLocalNotificationsPlugin plugin =
@@ -254,6 +274,52 @@ final class NotificationService {
     return false;
   }
 
+  /// Her genel API'nin başında güvenli başlatma.
+  ///
+  /// Plugin daha önce açılmadıysa (uygulama arka plandan döndü, ayar ekranı
+  /// doğrudan çağırdı…) burada açılır; başarısızsa `false` döner ve çağrı
+  /// sessizce atlanır.
+  Future<bool> ensureInitialized() async {
+    if (_ready && _plugin != null) return true;
+    return init();
+  }
+
+  /// İzin bir kez istenir; her bildirimde tekrar diyalog açılmaz.
+  Future<void> _ensurePermission({bool force = false}) async {
+    if (_permissionRequested && !force) return;
+    final bool granted = await requestPermissions();
+    if (granted) _permissionRequested = true;
+  }
+
+  /// Belirli bir kimlik aralığındaki bekleyen bildirimleri iptal eder.
+  ///
+  /// [matches] verilirse payload filtresi de uygulanır.
+  Future<int> cancelPendingInRange({
+    required int start,
+    required int end,
+    bool Function(String? payload)? matches,
+  }) async {
+    if (!await ensureInitialized() || _plugin == null) return 0;
+    int cancelled = 0;
+    try {
+      final List<PendingNotificationRequest> pending = await _plugin!
+          .pendingNotificationRequests();
+      for (final PendingNotificationRequest request in pending) {
+        if (request.id < start || request.id >= end) continue;
+        if (matches != null && !matches(request.payload)) continue;
+        try {
+          await _plugin!.cancel(request.id);
+          cancelled++;
+        } catch (_) {
+          // Tek bildirim iptal edilemezse diğerleri etkilenmez.
+        }
+      }
+    } catch (error) {
+      lastError = error.toString();
+    }
+    return cancelled;
+  }
+
   Future<bool> showTestNotification() async {
     final bool ready = await init();
     if (!ready || _plugin == null) return false;
@@ -278,9 +344,14 @@ final class NotificationService {
   /// `init()` daha önce çağrılmadıysa **burada** çağrılır; böylece bildirim
   /// sessizce kaybolmaz.
   Future<bool> showPartnerMessage(ChatMessage message) async {
-    if (!await init() || _plugin == null) return false;
+    if (!await ensureInitialized() || _plugin == null) return false;
+    await _ensurePermission();
     try {
-      final int id = 1000 + (message.id.hashCode.abs() % 800);
+      final int id = StableKey.namespacedId(
+        key: 'msg:${message.id}',
+        start: messageIdStart,
+        size: messageIdSize,
+      );
       await _plugin!.show(
         id,
         NotificationTexts.partnerTitle(message.senderId),
@@ -296,11 +367,15 @@ final class NotificationService {
   }
 
   Future<bool> showCapsuleUnlocked(RewardCapsule capsule) async {
-    if (!await init() || _plugin == null) return false;
-    await requestPermissions();
+    if (!await ensureInitialized() || _plugin == null) return false;
+    await _ensurePermission();
     try {
       await _plugin!.show(
-        1900 + (capsule.id.hashCode.abs() % 90),
+        StableKey.namespacedId(
+          key: 'capsule:${capsule.id}',
+          start: capsuleIdStart,
+          size: capsuleIdSize,
+        ),
         'Ödül kapsülü açıldı 🎁',
         NotificationTexts.capsuleBody(capsule),
         _details,
@@ -320,11 +395,15 @@ final class NotificationService {
     required String body,
     String payload = 'sync',
   }) async {
-    if (!await init() || _plugin == null) return false;
-    await requestPermissions();
+    if (!await ensureInitialized() || _plugin == null) return false;
+    await _ensurePermission();
     try {
       await _plugin!.show(
-        1800 + (payload.hashCode.abs() % 90),
+        StableKey.namespacedId(
+          key: 'activity:$payload',
+          start: activityIdStart,
+          size: activityIdSize,
+        ),
         NotificationTexts.partnerTitle(partnerId),
         body,
         _details,
@@ -343,8 +422,10 @@ final class NotificationService {
     required String partnerId,
     required List<ScheduleBlock> blocks,
   }) async {
+    // v6: bellek içi küme yerine kalıcı bekleyen bildirimler iptal edilir.
     await cancelPlanReminders();
-    if (!_ready || _plugin == null) return 0;
+    if (!await ensureInitialized() || _plugin == null) return 0;
+    await _ensurePermission();
     int scheduled = 0;
     for (final ScheduleBlock block in blocks) {
       if (block.partnerId != partnerId || block.title.trim().isEmpty) continue;
@@ -367,7 +448,6 @@ final class NotificationService {
           matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
           payload: 'plan:${block.id}',
         );
-        _planIds.add(id);
         scheduled++;
       } catch (error) {
         lastError = error.toString();
@@ -376,21 +456,21 @@ final class NotificationService {
     return scheduled;
   }
 
-  Future<void> cancelPlanReminders() async {
-    if (_plugin == null) return;
-    for (final int id in _planIds) {
-      try {
-        await _plugin!.cancel(id);
-      } catch (_) {
-        // Sessiz: iptal edilemeyen bildirim uygulamayı etkilemez.
-      }
-    }
-    _planIds.clear();
-  }
+  /// Plan hatırlatıcılarını **payload ve kimlik aralığı** ile iptal eder.
+  ///
+  /// Uygulama kapanıp açıldığında `_planIds` gibi bellek içi bir küme boş
+  /// olacağı için v6'da `pendingNotificationRequests()` kullanılır; eski
+  /// sürümden kalan bildirimler de temizlenir.
+  Future<int> cancelPlanReminders() => cancelPendingInRange(
+    start: planIdStart,
+    end: planIdStart + planIdSize,
+    matches: (String? payload) => payload == null || payload.startsWith('plan:'),
+  );
 
-  /// Her akşam 21:30'da nazik puanlama hatırlatıcısı.
+  /// Her akşam [hour]:[minute]'te nazik puanlama hatırlatıcısı.
   Future<bool> scheduleDailyCheckin({int hour = 21, int minute = 30}) async {
-    if (!_ready || _plugin == null) return false;
+    if (!await ensureInitialized() || _plugin == null) return false;
+    await _ensurePermission();
     try {
       final DateTime now = DateTime.now();
       DateTime when = DateTime(now.year, now.month, now.day, hour, minute);
@@ -430,8 +510,8 @@ final class NotificationService {
     DateTime? now,
     List<SpecialDate> dates = CoupleSpecialDates.all,
   }) async {
-    if (!await init() || _plugin == null) return 0;
-    await requestPermissions();
+    if (!await ensureInitialized() || _plugin == null) return 0;
+    await _ensurePermission();
     final DateTime at = now ?? DateTime.now();
     int scheduled = 0;
     for (int i = 0; i < dates.length; i++) {
@@ -528,7 +608,6 @@ final class NotificationService {
   );
 
   Future<void> cancelAll() async {
-    _planIds.clear();
     try {
       await _plugin?.cancelAll();
     } catch (_) {
@@ -564,8 +643,11 @@ final class NotificationService {
     return candidate;
   }
 
-  static int _planNotificationId(String blockId) =>
-      2000 + (blockId.hashCode.abs() % 6000);
+  static int _planNotificationId(String blockId) => StableKey.namespacedId(
+    key: 'plan:$blockId',
+    start: planIdStart,
+    size: planIdSize,
+  );
 }
 
 /// Özel gün bildirim planının iç yardımcısı.

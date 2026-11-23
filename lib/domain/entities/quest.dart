@@ -184,6 +184,7 @@ final class Quest {
     this.dueAt,
     this.completedAt,
     this.reflection,
+    this.isCustom = false,
   }) : assert(baseXp >= 0, 'XP negatif olamaz'),
        assert(estimatedMinutes > 0, 'Süre 0 olamaz');
 
@@ -229,6 +230,12 @@ final class Quest {
 
   /// Mikro yansıma metni (reflection doğrulaması).
   final String? reflection;
+
+  /// Kullanıcının kendi eklediği görev mi?
+  ///
+  /// Günlük görevler yenilenirken yalnızca üretilen görevler değiştirilir;
+  /// `isCustom == true` olan görevler korunur.
+  final bool isCustom;
 
   // ── Türetilmiş değerler ──────────────────────────────────────────────────
 
@@ -295,6 +302,7 @@ final class Quest {
     DateTime? dueAt,
     DateTime? completedAt,
     String? reflection,
+    bool? isCustom,
   }) {
     return Quest(
       id: id,
@@ -317,6 +325,7 @@ final class Quest {
       dueAt: dueAt ?? this.dueAt,
       completedAt: completedAt ?? this.completedAt,
       reflection: reflection ?? this.reflection,
+      isCustom: isCustom ?? this.isCustom,
     );
   }
 
@@ -341,6 +350,7 @@ final class Quest {
     'due_at': dueAt?.toIso8601String(),
     'completed_at': completedAt?.toIso8601String(),
     'reflection': reflection,
+    'is_custom': isCustom,
   };
 
   factory Quest.fromJson(Map<String, dynamic> json) {
@@ -384,6 +394,7 @@ final class Quest {
       reflection: json['reflection'] == null
           ? null
           : JsonX.asString(json['reflection']),
+      isCustom: JsonX.asBool(json['is_custom']),
     );
   }
 
@@ -412,7 +423,8 @@ final class Quest {
       other.streakCritical == streakCritical &&
       other.dueAt == dueAt &&
       other.completedAt == completedAt &&
-      other.reflection == reflection;
+      other.reflection == reflection &&
+      other.isCustom == isCustom;
 
   @override
   int get hashCode => Object.hash(
@@ -435,6 +447,7 @@ final class Quest {
     dueAt,
     completedAt,
     reflection,
+    isCustom,
   );
 
   @override

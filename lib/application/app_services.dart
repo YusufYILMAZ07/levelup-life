@@ -163,10 +163,13 @@ class _AppServicesState extends ConsumerState<AppServices>
       // Debounce edilmiş son durumu hemen diske yaz: uygulama öldürülse de
       // hiçbir dokunuş kaybolmaz.
       unawaited(ref.read(gameStoreProvider).flush());
-      ref.read(pinLockProvider.notifier).lockIfEnabled();
+      // v6: kilidi hemen basmak yerine zaman damgası tutulur; kamera/galeri
+      // gibi kısa sistem geçişleri grace period içinde ekranı kilitlemez.
+      ref.read(pinLockProvider.notifier).onAppPaused();
       return;
     }
     if (state == AppLifecycleState.resumed) {
+      ref.read(pinLockProvider.notifier).onAppResumed();
       _syncSchedules(ref.read(gameProvider), ref.read(appSettingsProvider));
       unawaited(
         ref.read(cloudSyncProvider).configure(ref.read(appSettingsProvider)),
@@ -182,6 +185,7 @@ class _AppServicesState extends ConsumerState<AppServices>
   }) {
     final AppSettings settings = ref.read(appSettingsProvider);
     if (!settings.messageNotifications) return;
+    if (settings.isQuietAt(DateTime.now())) return;
     final Set<String> known = previous.couple.messages
         .map((ChatMessage message) => message.id)
         .toSet();
@@ -285,6 +289,7 @@ class _AppServicesState extends ConsumerState<AppServices>
   void _handleRemoteActivity(GameState previous, GameState next) {
     final AppSettings settings = ref.read(appSettingsProvider);
     if (!settings.messageNotifications) return;
+    if (settings.isQuietAt(DateTime.now())) return;
     final String partnerId = CouplePartner.other(settings.deviceRole);
     if (!_sameScores(previous.couple.rubricScores, next.couple.rubricScores)) {
       unawaited(
@@ -339,6 +344,9 @@ class _AppServicesState extends ConsumerState<AppServices>
     final String signature = <String>[
       settings.planReminders.toString(),
       settings.dailyCheckinReminder.toString(),
+      settings.dailyCheckinLabel,
+      settings.doNotDisturbEnabled.toString(),
+      settings.quietHoursLabel,
       state.activePartnerId,
       for (final ScheduleBlock block in blocks)
         '${block.id}:${block.startMinutes}:${block.title}',
@@ -347,20 +355,51 @@ class _AppServicesState extends ConsumerState<AppServices>
     _planSignature = signature;
 
     if (settings.planReminders) {
+      // Sessiz saate denk gelen hatırlatıcı planlanmaz (DND).
+      final List<ScheduleBlock> audible = <ScheduleBlock>[
+        for (final ScheduleBlock block in blocks)
+          if (!_fallsIntoQuietHours(block, settings)) block,
+      ];
       unawaited(
         NotificationService.instance.syncPlanReminders(
           partnerId: state.activePartnerId,
-          blocks: blocks,
+          blocks: audible,
         ),
       );
     } else {
       unawaited(NotificationService.instance.cancelPlanReminders());
     }
     if (settings.dailyCheckinReminder) {
-      unawaited(NotificationService.instance.scheduleDailyCheckin());
+      final int minutes = settings.shiftOutOfQuietHours(
+        settings.dailyCheckinHour * 60 + settings.dailyCheckinMinute,
+      );
+      unawaited(
+        NotificationService.instance.scheduleDailyCheckin(
+          hour: minutes ~/ 60,
+          minute: minutes % 60,
+        ),
+      );
     } else {
       unawaited(NotificationService.instance.cancelDailyCheckin());
     }
+  }
+
+  /// Plan hatırlatıcısının (başlangıçtan 10 dk önce) sessiz saate denk gelip
+  /// gelmediğini hesaplar.
+  static bool _fallsIntoQuietHours(
+    ScheduleBlock block,
+    AppSettings settings,
+  ) {
+    if (!settings.doNotDisturbEnabled) return false;
+    final int reminder = (block.startMinutes - 10).clamp(0, 1439);
+    final DateTime probe = DateTime(
+      2000,
+      1,
+      1,
+      reminder ~/ 60,
+      reminder % 60,
+    );
+    return settings.isQuietAt(probe);
   }
 
   @override
@@ -404,8 +443,7 @@ class _AppServicesState extends ConsumerState<AppServices>
       if (!hadNotifications && wantsNotifications) {
         unawaited(_ensureNotificationPermission());
       }
-      if (previous.oneSignalAppId != next.oneSignalAppId ||
-          previous.oneSignalRestApiKey != next.oneSignalRestApiKey) {
+      if (previous.oneSignalAppId != next.oneSignalAppId) {
         unawaited(PushService.instance.initialize(next));
       } else if (previous.deviceRole != next.deviceRole) {
         unawaited(PushService.instance.syncIdentity(next));

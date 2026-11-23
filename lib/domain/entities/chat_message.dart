@@ -73,6 +73,8 @@ final class ChatMessage {
     this.replyPreviewText,
     this.isRead = false,
     this.durationSeconds = 0,
+    this.reactions = const <String, Set<String>>{},
+    this.editedAt,
   });
 
   final String id;
@@ -117,6 +119,25 @@ final class ChatMessage {
 
   /// Video süresi (saniye) — süre rozeti için.
   final int durationSeconds;
+
+  /// Emoji → tepkiyi bırakan partner kimlikleri (`{'❤️': {'ceyda'}}`).
+  ///
+  /// v6: yanıt/beğeni yanında hafif emoji tepkileri. Aynı emojiye iki partner
+  /// de dokunabilir; her partner kendi tepkisini tekrar dokunarak kaldırır.
+  final Map<String, Set<String>> reactions;
+
+  /// Metin düzenlendiyse son düzenleme zamanı (`✏️ düzenlendi` rozeti).
+  final DateTime? editedAt;
+
+  bool get isEdited => editedAt != null;
+
+  /// Bu mesaja bırakılan toplam tepki sayısı.
+  int get reactionCount =>
+      reactions.values.fold<int>(0, (int sum, Set<String> ids) => sum + ids.length);
+
+  /// Belirli emojiyi bırakan partnerler.
+  Set<String> reactorsOf(String emoji) =>
+      reactions[emoji] ?? const <String>{};
 
   /// Medya alanının okunabilir adı (v4 API'si).
   String? get mediaPathOrUrl => photoDataOrUrl;
@@ -182,6 +203,8 @@ final class ChatMessage {
     String? replyPreviewText,
     bool? isRead,
     int? durationSeconds,
+    Map<String, Set<String>>? reactions,
+    DateTime? editedAt,
     bool clearReply = false,
   }) => ChatMessage(
     id: id,
@@ -204,9 +227,42 @@ final class ChatMessage {
         : (replyPreviewText ?? this.replyPreviewText),
     isRead: isRead ?? this.isRead,
     durationSeconds: durationSeconds ?? this.durationSeconds,
+    reactions: reactions ?? this.reactions,
+    editedAt: editedAt ?? this.editedAt,
   );
 
   ChatMessage toggleLike() => copyWith(isLiked: !isLiked);
+
+  /// Bir emoji tepkisini açar/kapatır.
+  ///
+  /// Aynı partner aynı emojiye tekrar dokunursa tepki kaldırılır; farklı
+  /// partnerler aynı emojiyi biriktirebilir.
+  ChatMessage toggleReaction({
+    required String emoji,
+    required String partnerId,
+  }) {
+    final String clean = emoji.trim();
+    if (clean.isEmpty || partnerId.trim().isEmpty) return this;
+    final Map<String, Set<String>> next = <String, Set<String>>{
+      for (final MapEntry<String, Set<String>> entry in reactions.entries)
+        entry.key: <String>{...entry.value},
+    };
+    final Set<String> reactors = next[clean] ?? <String>{};
+    if (!reactors.remove(partnerId)) reactors.add(partnerId);
+    if (reactors.isEmpty) {
+      next.remove(clean);
+    } else {
+      next[clean] = reactors;
+    }
+    return copyWith(reactions: next);
+  }
+
+  /// Metni düzenler (boş metin yoksayılır).
+  ChatMessage withEdit({required String text, required DateTime at}) {
+    final String trimmed = text.trim();
+    if (trimmed.isEmpty) return this;
+    return copyWith(text: trimmed, editedAt: at);
+  }
 
   ChatMessage markRead() => isRead ? this : copyWith(isRead: true);
 
@@ -231,6 +287,11 @@ final class ChatMessage {
     'reply_preview_text': replyPreviewText,
     'duration_seconds': durationSeconds,
     'kind': kind.code,
+    'reactions': <String, dynamic>{
+      for (final MapEntry<String, Set<String>> entry in reactions.entries)
+        entry.key: entry.value.toList(growable: false),
+    },
+    'edited_at': editedAt?.toIso8601String(),
   };
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
@@ -264,7 +325,28 @@ final class ChatMessage {
           : JsonX.asString(json['reply_preview_text']),
       isRead: JsonX.asBool(json['is_read']),
       durationSeconds: JsonX.asInt(json['duration_seconds']),
+      reactions: _parseReactions(json['reactions']),
+      editedAt: JsonX.asDate(json['edited_at']),
     );
+  }
+
+  static Map<String, Set<String>> _parseReactions(Object? raw) {
+    if (raw is! Map) return const <String, Set<String>>{};
+    final Map<String, Set<String>> parsed = <String, Set<String>>{};
+    for (final MapEntry<dynamic, dynamic> entry in raw.entries) {
+      final String emoji = entry.key.toString().trim();
+      if (emoji.isEmpty) continue;
+      final Set<String> ids = <String>{};
+      final Object? value = entry.value;
+      if (value is Iterable) {
+        for (final Object? item in value) {
+          final String id = item?.toString().trim() ?? '';
+          if (id.isNotEmpty) ids.add(id);
+        }
+      }
+      if (ids.isNotEmpty) parsed[emoji] = ids;
+    }
+    return parsed;
   }
 
   @override
@@ -285,7 +367,22 @@ final class ChatMessage {
       other.replyToMessageId == replyToMessageId &&
       other.replyPreviewText == replyPreviewText &&
       other.isRead == isRead &&
-      other.durationSeconds == durationSeconds;
+      other.durationSeconds == durationSeconds &&
+      _sameReactions(other.reactions, reactions) &&
+      other.editedAt == editedAt;
+
+  static bool _sameReactions(
+    Map<String, Set<String>> a,
+    Map<String, Set<String>> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (final MapEntry<String, Set<String>> entry in a.entries) {
+      final Set<String>? other = b[entry.key];
+      if (other == null || other.length != entry.value.length) return false;
+      if (!other.containsAll(entry.value)) return false;
+    }
+    return true;
+  }
 
   @override
   int get hashCode => Object.hash(
@@ -305,6 +402,11 @@ final class ChatMessage {
     replyPreviewText,
     isRead,
     durationSeconds,
+    Object.hashAll(<Object>[
+      for (final MapEntry<String, Set<String>> entry in reactions.entries)
+        Object.hash(entry.key, Object.hashAllUnordered(entry.value)),
+    ]),
+    editedAt,
   );
 
   @override

@@ -4,7 +4,7 @@ import 'package:levelup_life/services/app_settings.dart';
 import 'package:levelup_life/services/push_service.dart';
 
 void main() {
-  group('PushPayloads', () {
+  group('PushPayloads (Edge Function gövdesi)', () {
     test('mesajı partnerin external_id hedefine yönlendirir', () {
       final ChatMessage message = ChatMessage(
         id: 'msg-1',
@@ -14,38 +14,34 @@ void main() {
       );
 
       final Map<String, dynamic> payload = PushPayloads.chatMessage(
-        appId: 'app-id',
         recipientId: CouplePartner.ceydaId,
+        senderId: CouplePartner.yusufId,
+        roomCode: 'YUSUF-CEYDA-2026',
         message: message,
       );
 
-      expect(payload['app_id'], 'app-id');
-      expect(payload['target_channel'], 'push');
-      expect(payload['include_aliases'], <String, dynamic>{
-        'external_id': <String>[CouplePartner.ceydaId],
-      });
-      expect((payload['headings'] as Map<String, dynamic>)['tr'], 'Yusuf 💻');
-      expect(
-        (payload['contents'] as Map<String, dynamic>)['tr'],
-        'Seni seviyorum',
-      );
+      expect(payload['recipient_id'], CouplePartner.ceydaId);
+      expect(payload['sender_id'], CouplePartner.yusufId);
+      expect(payload['room_code'], 'YUSUF-CEYDA-2026');
+      expect(payload['type'], 'chat');
+      expect(payload['headings'], 'Yusuf 💻');
+      expect(payload['contents'], 'Seni seviyorum');
       expect((payload['data'] as Map<String, dynamic>)['route'], 'chat');
+      // REST anahtarı istemci gövdesinde asla yer almaz.
+      expect(payload.containsKey('app_id'), isFalse);
+      expect(payload.toString().contains('os_v2_'), isFalse);
     });
 
     test('test push’u karşı partneri hedefler', () {
       final Map<String, dynamic> payload = PushPayloads.test(
-        appId: 'app-id',
         recipientId: CouplePartner.yusufId,
+        senderId: CouplePartner.ceydaId,
+        roomCode: 'YUSUF-CEYDA-2026',
         senderName: 'Ceyda',
       );
-      expect(
-        (payload['include_aliases'] as Map<String, dynamic>)['external_id'],
-        <String>[CouplePartner.yusufId],
-      );
-      expect(
-        (payload['contents'] as Map<String, dynamic>)['tr'],
-        contains('Ceyda'),
-      );
+      expect(payload['recipient_id'], CouplePartner.yusufId);
+      expect(payload['contents'], contains('Ceyda'));
+      expect(payload['room_code'], 'YUSUF-CEYDA-2026');
     });
   });
 

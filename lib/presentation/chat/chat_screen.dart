@@ -41,15 +41,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _input = TextEditingController();
   final TextEditingController _search = TextEditingController();
   final MediaService _media = MediaService();
+  CloudSyncCoordinator? _cloud;
 
   ChatMessage? _replyTarget;
   bool _searching = false;
   bool _loadingOlder = false;
   String _query = '';
 
+  static const List<String> _quickReactions = <String>[
+    '❤️',
+    '😂',
+    '🥹',
+    '🔥',
+    '👍',
+  ];
+
   @override
   void initState() {
     super.initState();
+    _cloud = ref.read(cloudSyncProvider);
+    _input.addListener(_onInputChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _jumpToEnd(animate: false);
       // Sohbeti açan partner, karşıdan gelen mesajları görmüş olur (✓✓).
@@ -57,8 +68,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
+  bool _typingSent = false;
+
+  void _onInputChanged() {
+    final bool typing = _input.text.trim().isNotEmpty;
+    if (typing == _typingSent) return;
+    _typingSent = typing;
+    _cloud?.setTyping(typing);
+  }
+
   @override
   void dispose() {
+    _input.removeListener(_onInputChanged);
+    _cloud?.setTyping(false);
     _scroll.dispose();
     _input.dispose();
     _search.dispose();
@@ -135,6 +157,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _snack('🗑️ Mesaj silindi');
   }
 
+  Future<void> _editMessage(ChatMessage message) async {
+    final TextEditingController controller = TextEditingController(
+      text: message.text,
+    );
+    final String? text = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('✏️ Mesajı düzenle'),
+        content: TextField(
+          key: const Key('chat-edit-input'),
+          controller: controller,
+          autofocus: true,
+          maxLines: 4,
+          maxLength: 1000,
+          decoration: const InputDecoration(hintText: 'Yeni metin'),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Vazgeç'),
+          ),
+          TextButton(
+            key: const Key('chat-edit-save'),
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Kaydet'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (text == null || text.isEmpty || !mounted) return;
+    final bool ok = ref
+        .read(gameProvider.notifier)
+        .editMessage(message.id, text);
+    _snack(ok ? '✏️ Mesaj güncellendi' : 'Bu mesaj düzenlenemiyor');
+  }
+
   Future<void> _openActions(ChatMessage message) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -176,6 +236,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: AppSpacing.xs,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: <Widget>[
+                  for (final String emoji in _quickReactions)
+                    InkWell(
+                      key: Key('chat-react-$emoji'),
+                      borderRadius: AppRadii.pillAll,
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        ref
+                            .read(gameProvider.notifier)
+                            .reactToMessage(message.id, emoji);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.sm),
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(fontSize: 24),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
             ListTile(
               key: const Key('chat-action-reply'),
               leading: const Text('↩️', style: TextStyle(fontSize: 20)),
@@ -195,6 +284,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onTap: () {
                 Navigator.of(sheetContext).pop();
                 ref.read(gameProvider.notifier).likeMessage(message.id);
+              },
+            ),
+            ListTile(
+              key: const Key('chat-action-edit'),
+              leading: const Text('✏️', style: TextStyle(fontSize: 20)),
+              title: const Text('Düzenle'),
+              enabled:
+                  message.senderId ==
+                      ref.read(gameProvider).activePartnerId &&
+                  !message.hasMedia &&
+                  message.text.trim().isNotEmpty,
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _editMessage(message);
               },
             ),
             ListTile(
@@ -338,7 +441,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _pickDeviceImage(ImageSource source) async {
     try {
-      final PickedMedia? picked = await _media.pickImage(source: source);
+      final PickedMedia? picked = await _media.pickImage(
+        source: source,
+        allowCloudUpload: ref.read(appSettingsProvider).isCloudConfigured,
+      );
       if (picked == null || !mounted) return;
       final String? caption = await showMediaPreviewSheet(context, picked);
       if (caption == null || !mounted) return;
@@ -353,6 +459,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final PickedMedia? picked = await _media.pickVideo(
         source: source,
         includeBytes: ref.read(appSettingsProvider).isCloudConfigured,
+        allowCloudUpload: ref.read(appSettingsProvider).isCloudConfigured,
       );
       if (picked == null || !mounted) return;
       final String? caption = await showMediaPreviewSheet(context, picked);
@@ -380,6 +487,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (uploaded != null) source = uploaded;
     }
     if (!mounted) return;
+    if (picked.requiresUpload && (source.startsWith('data:') || source.isEmpty)) {
+      // v6: Web'de 250 KB üstü medya localStorage'a gömülmez. Yükleme
+      // başarısızsa mesaj gönderilmez; kullanıcıya net yönlendirme verilir.
+      _snack('☁️ Yükleme tamamlanamadı · Supabase bağlantısını kontrol et.');
+      return;
+    }
     final ChatMessage? message = ref
         .read(gameProvider.notifier)
         .sendMedia(
@@ -422,6 +535,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final String partnerName = CouplePalette.nameOf(
       CouplePartner.other(state.activePartnerId),
     );
+    final SyncPresence presence = ref.watch(syncPresenceProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -435,6 +549,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               children: <Widget>[
                 _ChatHeader(
                   couple: couple,
+                  partnerName: partnerName,
+                  partnerOnline: presence.partnerOnline,
+                  partnerTyping: presence.partnerTyping,
                   searching: _searching,
                   onToggleSearch: () {
                     setState(() {
@@ -741,10 +858,49 @@ class _MessageBubble extends StatelessWidget {
                     ),
                     child: _bubbleContent(hasMedia, textColor, mutedColor),
                   ),
+                  if (message.reactionCount > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 2,
+                        children: <Widget>[
+                          for (final MapEntry<String, Set<String>> entry
+                              in message.reactions.entries)
+                            Container(
+                              key: Key('reaction-${message.id}-${entry.key}'),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.surface,
+                                borderRadius: AppRadii.pillAll,
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Text(
+                                '${entry.key} ${entry.value.length}',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 2),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
+                      if (message.isEdited) ...<Widget>[
+                        Text(
+                          '✏️ düzenlendi',
+                          key: Key('edited-${message.id}'),
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.textTertiary,
+                            fontSize: 10,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
                       Text(
                         _timeLabel,
                         style: AppTypography.caption.copyWith(
@@ -970,12 +1126,18 @@ class _MessageBubble extends StatelessWidget {
 class _ChatHeader extends StatelessWidget {
   const _ChatHeader({
     required this.couple,
+    required this.partnerName,
+    required this.partnerOnline,
+    required this.partnerTyping,
     required this.searching,
     required this.onToggleSearch,
     required this.onAlbum,
   });
 
   final CoupleState couple;
+  final String partnerName;
+  final bool partnerOnline;
+  final bool partnerTyping;
   final bool searching;
   final VoidCallback onToggleSearch;
   final VoidCallback onAlbum;
@@ -1031,12 +1193,22 @@ class _ChatHeader extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  'Yusuf & Ceyda · ${couple.messages.length} mesaj · '
-                  '${couple.photoMessages.length} anı',
+                  partnerTyping
+                      ? '$partnerName yazıyor…'
+                      : partnerOnline
+                      ? '$partnerName çevrimiçi · ${couple.messages.length} mesaj'
+                      : 'Yusuf & Ceyda · ${couple.messages.length} mesaj · '
+                            '${couple.photoMessages.length} anı',
+                  key: const Key('chat-presence-subtitle'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.textTertiary,
+                    color: partnerTyping || partnerOnline
+                        ? CouplePalette.ceyda
+                        : AppColors.textTertiary,
+                    fontWeight: partnerTyping
+                        ? FontWeight.w700
+                        : FontWeight.w500,
                   ),
                 ),
               ],

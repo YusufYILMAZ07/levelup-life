@@ -7,7 +7,7 @@ abstract final class AppConstants {
   // ── Ürün kimliği ─────────────────────────────────────────────────────────
   static const String appName = 'LevelUp Life';
   static const String appTagline = 'Hayatını seviye atlat.';
-  static const String appVersion = '5.0.0';
+  static const String appVersion = '6.0.0';
 
   // ── İlerleme sınırları ───────────────────────────────────────────────────
   static const int minLevel = 1;

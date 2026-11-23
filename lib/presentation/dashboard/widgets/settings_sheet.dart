@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../application/game_controller.dart';
 import '../../../application/game_state.dart';
@@ -8,6 +9,8 @@ import '../../../application/pin_lock_controller.dart';
 import '../../../core/theme/theme.dart';
 import '../../../domain/entities/entities.dart';
 import '../../../services/app_settings.dart';
+import '../../../services/backup_service.dart';
+import '../../../services/biometric_service.dart';
 import '../../../services/cloud_sync_coordinator.dart';
 import '../../../services/media_service.dart';
 import '../../../services/notification_service.dart';
@@ -319,6 +322,10 @@ class SettingsSheet extends ConsumerWidget {
             const Divider(),
             const SizedBox(height: AppSpacing.lg),
             const _PrivacySettings(),
+            const SizedBox(height: AppSpacing.xl),
+            const Divider(),
+            const SizedBox(height: AppSpacing.lg),
+            const _BackupSettings(),
             const SizedBox(height: AppSpacing.xl),
             const Divider(),
             const SizedBox(height: AppSpacing.lg),
@@ -645,6 +652,51 @@ class _AvatarTile extends StatelessWidget {
 class _NotificationSettings extends ConsumerWidget {
   const _NotificationSettings();
 
+  Future<void> _pickCheckinTime(BuildContext context, WidgetRef ref) async {
+    final AppSettings settings = ref.read(appSettingsProvider);
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: settings.dailyCheckinHour,
+        minute: settings.dailyCheckinMinute,
+      ),
+      helpText: 'Akşam puanı hatırlatma saati',
+    );
+    if (picked == null || !context.mounted) return;
+    ref
+        .read(appSettingsProvider.notifier)
+        .setDailyCheckinTime(hour: picked.hour, minute: picked.minute);
+  }
+
+  Future<void> _pickQuietRange(BuildContext context, WidgetRef ref) async {
+    final AppSettings settings = ref.read(appSettingsProvider);
+    final TimeOfDay? start = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: settings.quietStartMinutes ~/ 60,
+        minute: settings.quietStartMinutes % 60,
+      ),
+      helpText: 'Sessiz saatler başlangıcı',
+    );
+    if (start == null || !context.mounted) return;
+    final TimeOfDay? end = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: settings.quietEndMinutes ~/ 60,
+        minute: settings.quietEndMinutes % 60,
+      ),
+      helpText: 'Sessiz saatler bitişi',
+    );
+    if (end == null || !context.mounted) return;
+    ref
+        .read(appSettingsProvider.notifier)
+        .setDoNotDisturb(
+          enabled: true,
+          startMinutes: start.hour * 60 + start.minute,
+          endMinutes: end.hour * 60 + end.minute,
+        );
+  }
+
   Future<void> _sendTest(BuildContext context) async {
     // Her platformda anında görünen iOS-tarzı floating banner.
     InAppNotificationCenter.instance.show(
@@ -704,10 +756,77 @@ class _NotificationSettings extends ConsumerWidget {
           key: const Key('notif-checkin'),
           icon: Icons.nightlight_round,
           title: 'Akşam Puanlama Hatırlatıcısı',
-          subtitle: 'Her akşam 21:30 · 1-2-3 gelişim puanları',
+          subtitle: 'Her akşam ${settings.dailyCheckinLabel} · 1-2-3 puanları',
           value: settings.dailyCheckinReminder,
           onChanged: controller.setDailyCheckinReminder,
         ),
+        ListTile(
+          key: const Key('notif-checkin-time'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          leading: const Icon(
+            Icons.schedule_rounded,
+            size: 20,
+            color: AppColors.textSecondary,
+          ),
+          title: Text(
+            'Check-in saati',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            settings.dailyCheckinLabel,
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.textTertiary,
+          ),
+          onTap: () => _pickCheckinTime(context, ref),
+        ),
+        _ToggleTile(
+          key: const Key('notif-dnd'),
+          icon: Icons.do_not_disturb_on_rounded,
+          title: 'Sessiz Saatler (DND)',
+          subtitle: '${settings.quietHoursLabel} · bildirim gönderilmez',
+          value: settings.doNotDisturbEnabled,
+          onChanged: (bool value) => controller.setDoNotDisturb(enabled: value),
+        ),
+        if (settings.doNotDisturbEnabled)
+          ListTile(
+            key: const Key('notif-dnd-range'),
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            leading: const Icon(
+              Icons.bedtime_rounded,
+              size: 20,
+              color: AppColors.textSecondary,
+            ),
+            title: Text(
+              'Sessiz aralık',
+              style: AppTypography.subtitle.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+            subtitle: Text(
+              settings.quietHoursLabel,
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textTertiary,
+              ),
+            ),
+            trailing: const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.textTertiary,
+            ),
+            onTap: () => _pickQuietRange(context, ref),
+          ),
         const SizedBox(height: AppSpacing.xs),
         OutlinedButton.icon(
           key: const Key('notif-test'),
@@ -731,7 +850,6 @@ class _PushSettings extends ConsumerStatefulWidget {
 
 class _PushSettingsState extends ConsumerState<_PushSettings> {
   late final TextEditingController _appId;
-  late final TextEditingController _restKey;
   bool _busy = false;
 
   @override
@@ -739,13 +857,11 @@ class _PushSettingsState extends ConsumerState<_PushSettings> {
     super.initState();
     final AppSettings settings = ref.read(appSettingsProvider);
     _appId = TextEditingController(text: settings.oneSignalAppId);
-    _restKey = TextEditingController(text: settings.oneSignalRestApiKey);
   }
 
   @override
   void dispose() {
     _appId.dispose();
-    _restKey.dispose();
     super.dispose();
   }
 
@@ -762,7 +878,7 @@ class _PushSettingsState extends ConsumerState<_PushSettings> {
     setState(() => _busy = true);
     ref
         .read(appSettingsProvider.notifier)
-        .savePushConfig(appId: _appId.text, restApiKey: _restKey.text);
+        .savePushConfig(appId: _appId.text);
     final bool ok = await PushService.instance.initialize(
       ref.read(appSettingsProvider),
     );
@@ -794,8 +910,8 @@ class _PushSettingsState extends ConsumerState<_PushSettings> {
         SectionHeader(
           title: '🔔 Kapalıyken de Bildirim (OneSignal Push)',
           subtitle:
-              'Uygulama kapalıyken bile partnerine ulaş. OneSignal panelindeki '
-              'App ID ve REST API anahtarını gir.',
+              'Uygulama kapalıyken bile partnerine ulaş. Yalnızca App ID '
+              'gerekir; REST anahtarı Supabase Edge Function’da saklanır.',
           trailing: InfoPill(
             label: settings.isPushConfigured ? 'Hazır' : 'Kurulmadı',
             color: settings.isPushConfigured
@@ -810,13 +926,6 @@ class _PushSettingsState extends ConsumerState<_PushSettings> {
           controller: _appId,
           label: 'OneSignal App ID',
           hint: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
-        ),
-        _CloudField(
-          key: const Key('onesignal-rest-key'),
-          controller: _restKey,
-          label: 'REST API Key',
-          hint: 'os_v2_…',
-          obscure: true,
         ),
         const SizedBox(height: AppSpacing.xs),
         Wrap(
@@ -893,6 +1002,28 @@ class _ToggleTile extends StatelessWidget {
 
 class _PrivacySettings extends ConsumerWidget {
   const _PrivacySettings();
+
+  Future<void> _pickGrace(BuildContext context, WidgetRef ref) async {
+    const List<int> options = <int>[0, 15, 30, 60, 120, 300];
+    final int? picked = await showDialog<int>(
+      context: context,
+      builder: (BuildContext dialogContext) => SimpleDialog(
+        title: const Text('Arka plan toleransı'),
+        children: <Widget>[
+          for (final int seconds in options)
+            SimpleDialogOption(
+              key: Key('pin-grace-$seconds'),
+              onPressed: () => Navigator.of(dialogContext).pop(seconds),
+              child: Text(
+                seconds == 0 ? 'Hemen kilitle' : '$seconds saniye',
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    ref.read(appSettingsProvider.notifier).setLockGraceSeconds(picked);
+  }
 
   Future<void> _changePin(BuildContext context, WidgetRef ref) async {
     final TextEditingController controller = TextEditingController();
@@ -1035,9 +1166,9 @@ class _PrivacySettings extends ConsumerWidget {
             ),
           ),
           subtitle: Text(
-            settings.pinCode == AppSettings.defaultPin
-                ? 'Şu an varsayılan PIN · 3101'
-                : 'Şu an özel PIN · ••••',
+            settings.hasPin
+                ? 'Şu an özel PIN · •••• · yalnızca hash saklanır'
+                : 'Şu an varsayılan PIN · 3101',
             style: AppTypography.caption.copyWith(
               color: AppColors.textTertiary,
             ),
@@ -1047,6 +1178,84 @@ class _PrivacySettings extends ConsumerWidget {
             color: AppColors.textTertiary,
           ),
           onTap: () => _changePin(context, ref),
+        ),
+        SwitchListTile.adaptive(
+          key: const Key('biometric-toggle'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          secondary: const Icon(
+            Icons.fingerprint_rounded,
+            size: 20,
+            color: AppColors.textSecondary,
+          ),
+          title: Text(
+            'Face ID / Parmak İzi ile Aç',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            settings.biometricEnabled
+                ? 'Biyometrik kilit açık · PIN yedek olarak kalır'
+                : 'PIN yerine biyometrik doğrulama kullan',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          value: settings.biometricEnabled,
+          onChanged: (bool value) async {
+            ref
+                .read(appSettingsProvider.notifier)
+                .setBiometricEnabled(value);
+            if (!value) return;
+            final bool available = await ref
+                .read(biometricServiceProvider)
+                .isAvailable();
+            if (!available && context.mounted) {
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Bu cihazda biyometri bulunamadı · PIN kullanılmaya '
+                      'devam eder.',
+                    ),
+                  ),
+                );
+            }
+          },
+        ),
+        ListTile(
+          key: const Key('pin-grace'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          leading: const Icon(
+            Icons.timelapse_rounded,
+            size: 20,
+            color: AppColors.textSecondary,
+          ),
+          title: Text(
+            'Arka plan toleransı',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            'Kamera/galeri dönüşünde ${settings.lockGraceSeconds} sn '
+            'boyunca kilit sorulmaz',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.textTertiary,
+          ),
+          onTap: () => _pickGrace(context, ref),
         ),
         ListTile(
           key: const Key('pin-lock-now'),
@@ -1419,3 +1628,136 @@ class _RoleChip extends StatelessWidget {
     );
   }
 }
+
+/// v6: tüm yerel veriyi JSON olarak dışa aktarma / doğrulamalı geri yükleme.
+class _BackupSettings extends ConsumerWidget {
+  const _BackupSettings();
+
+  void _snack(BuildContext context, String message) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+      );
+  }
+
+  Future<void> _export(BuildContext context, WidgetRef ref) async {
+    final String json = BackupService.export(ref.read(gameProvider));
+    await Clipboard.setData(ClipboardData(text: json));
+    try {
+      await Share.share(
+        json,
+        subject: 'LevelUp Life yedeği',
+        sharePositionOrigin: null,
+      );
+    } catch (_) {
+      // Paylaşım sayfası yoksa pano kopyası yeterlidir (Web/masaüstü).
+    }
+    if (!context.mounted) return;
+    _snack(context, '💾 Yedek panoya kopyalandı · ${json.length} karakter');
+  }
+
+  Future<void> _import(BuildContext context, WidgetRef ref) async {
+    final TextEditingController controller = TextEditingController();
+    final String? raw = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('📥 Yedeği geri yükle'),
+        content: TextField(
+          key: const Key('backup-import-input'),
+          controller: controller,
+          maxLines: 8,
+          minLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'Yedek JSON’unu buraya yapıştır',
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Vazgeç'),
+          ),
+          TextButton(
+            key: const Key('backup-import-apply'),
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('Doğrula'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (raw == null || raw.trim().isEmpty || !context.mounted) return;
+
+    BackupRestore restore;
+    try {
+      restore = BackupService.parse(raw);
+    } on BackupException catch (error) {
+      _snack(context, '⚠️ ${error.message}');
+      return;
+    }
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('Yedek doğrulandı ✅'),
+        content: Text(
+          'Tarih: ${restore.exportedAt.toLocal()}\n'
+          'Sürüm: v${restore.schemaVersion}\n'
+          '${restore.state.partners.length} partner · '
+          '${restore.state.couple.messages.length} mesaj\n\n'
+          'Mevcut veri bu yedekle değiştirilecek.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            key: const Key('backup-restore-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Geri yükle'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await ref.read(gameProvider.notifier).importState(restore.state);
+    if (!context.mounted) return;
+    _snack(context, '✅ Yedek geri yüklendi');
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SectionHeader(
+          title: 'Yedekleme',
+          subtitle:
+              'Tüm XP, sohbet ve plan tek JSON dosyasında. Doğrulamalı geri '
+              'yükleme yarım veri bırakmaz.',
+        ),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: <Widget>[
+            OutlinedButton.icon(
+              key: const Key('backup-export'),
+              onPressed: () => _export(context, ref),
+              icon: const Icon(Icons.ios_share_rounded, size: 18),
+              label: const Text('💾 Yedeği paylaş'),
+            ),
+            OutlinedButton.icon(
+              key: const Key('backup-import'),
+              onPressed: () => _import(context, ref),
+              icon: const Icon(Icons.download_rounded, size: 18),
+              label: const Text('📥 Yedekten yükle'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+

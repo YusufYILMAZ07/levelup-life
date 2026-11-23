@@ -1,4 +1,4 @@
-# LevelUp Life ⚡ — Couple Edition v5.0 (Yusuf & Ceyda)
+# LevelUp Life ⚡ — Couple Edition v6.0 (Yusuf & Ceyda)
 
 Hayatını bir RPG'ye çeviren Flutter uygulaması — **iki kişilik** sürüm. Günlük
 görevlerini tamamla, XP kazan, seviye atla, 5 temel statını geliştir ve gün
@@ -6,6 +6,13 @@ serini koru. Partnerin de aynı ekranda kendi karakterini büyütür. Uygulama
 **varsayılan olarak tamamen yerel** çalışır; istersen iki telefonu Supabase
 üzerinden canlı senkronize edebilir, OneSignal ile uygulama kapalıyken bile
 bildirim alabilirsin.
+
+> **v6.0 üretim sertleştirmesi:** `for all using (true)` RLS politikaları
+> kaldırıldı, oda üyeliği + anonim auth eklendi, `couple-media` kovası özel
+> oldu ve imzalı URL'ye geçti. OneSignal REST anahtarı istemciden çıkarıldı;
+> push artık Supabase Edge Function üzerinden gönderiliyor. PIN düz metin
+> yerine tuzlanmış SHA-256 olarak saklanıyor; çevrimdışı kuyruk (Outbox) ve
+> tombstone'lar diske yazılıyor.
 
 ## Özellikler
 
@@ -30,27 +37,36 @@ bildirim alabilirsin.
 - **Sohbet & anı albümü (WhatsApp + Locket kalitesi)** — gerçek kamera ve
   galeriden fotoğraf/video (en fazla **45 sn / 20 MB**), göndermeden önce not
   ekleme, sohbet içi video oynatıcı, iki parmakla yakınlaştırma, yanıtla (uzun
-  bas veya sağa kaydır), beğen/kopyala/sil, gün ayırıcıları (`Bugün`, `Dün`,
-  `18 Kasım`), ✓/✓✓ okundu bilgisi ve başlıkta canlı arama. Anı albümü
+  bas veya sağa kaydır), beğen/kopyala/sil, **emoji tepkileri**, **mesaj
+  düzenleme** (`✏️ düzenlendi`), gün ayırıcıları (`Bugün`, `Dün`, `18 Kasım`),
+  ✓/✓✓ okundu bilgisi ve başlıkta canlı arama. Anı albümü
   `Tümü / Fotoğraflar / Videolar / Plan Kanıtları` sekmeleriyle filtrelenir.
-- **Kalıcı sohbet geçmişi** — son 200 mesaj bağlantıda otomatik yüklenir;
-  sohbetin üstündeki **⬆️ Daha Eski Mesajları Yükle** düğmesiyle buluttaki tüm
-  geçmiş sayfalanır. Yerel ve uzak mesajlar id ile birleştirilir; hiçbir yerel
-  mesaj ezilmez, çevrimdışı gönderimler bağlantı gelince kuyruktan yüklenir.
+- **Canlı presence** — Supabase'e bağlıyken karşı partnerin **çevrimiçi** ve
+  **yazıyor…** durumu sohbet başlığında görünür (Realtime Presence + broadcast).
+- **Kalıcı sohbet geçmişi + tombstone** — son 200 mesaj bağlantıda otomatik
+  yüklenir; **⬆️ Daha Eski Mesajları Yükle** ile sayfalanır. Silinen mesajlar
+  `deletedMessageTombstones`, silinen özel notlar `deletedLoveNoteTombstones`
+  ile işaretlenir; uzak geçmiş veya eski bir durum paketi onları **geri
+  diriltemez**. Çevrimdışı gönderimler kalıcı Outbox'tan bağlantı gelince akar.
 - **Gerçek profil fotoğrafları** — Yusuf ve Ceyda ayarlardan galeriden kendi
   fotoğrafını seçer; üst bar, sohbet ve "Şu Anda İkimiz" kartında görünür.
-- **Üç katmanlı bildirim** — (1) her platformda anında görünen iOS tarzı
-  floating banner, (2) uygulama açık/arka plandayken yerel OS bildirimi,
-  (3) uygulama tamamen kapalıyken OneSignal push. Partnerden yeni
-  mesaj/fotoğraf/video/dürtme geldiğinde bildirim; her plan bloğundan **10 dk
-  önce** haftalık hatırlatıcı ve her akşam **21:30** gelişim puanı
-  hatırlatıcısı. Bildirime dokunmak Sohbet sekmesini açar.
+- **Üç katmanlı bildirim + tercihler** — (1) her platformda anında görünen iOS
+  tarzı floating banner, (2) uygulama açık/arka plandayken yerel OS bildirimi,
+  (3) uygulama tamamen kapalıyken OneSignal push (Supabase Edge Function ile).
+  **Check-in saati** ve **sessiz saat (DND) aralığı** ayarlanabilir; sessiz
+  saatte OS bildirimi/push gönderilmez, plan hatırlatıcısı planlanmaz. Her plan
+  bloğundan **10 dk önce** haftalık hatırlatıcı. Bildirime dokunmak Sohbet
+  sekmesini açar.
 - **Dört gerçek özel gün** — Ceyda'nın doğum günü (27 Kasım), Yusuf'un doğum
   günü (20 Aralık), yıldönümü (31 Ocak) ve Sevgililer Günü (14 Şubat). Her biri
   için bir gün önce **20:00** ve gün içinde **09:00** yıllık bildirim; Bugün
   sekmesinde geri sayım ve doğum günü deneyimi.
-- **Özel alan PIN kilidi** — 4 haneli çift PIN'i (varsayılan **3101**),
-  uygulama açılışında ve arka plandan dönüşte zarif bir numpad sorar.
+- **Özel alan PIN kilidi + biyometri** — 4 haneli çift PIN'i (varsayılan
+  **3101**), uygulama açılışında ve arka plandan dönüşte zarif bir numpad
+  sorar. PIN **tuzlanmış SHA-256** olarak `flutter_secure_storage` içinde
+  saklanır; Face ID / parmak izi (`local_auth`) ve **0–300 sn arka plan
+  toleransı** (kamera/galeri dönüşü) desteklenir. 5 hatalı denemeden sonra
+  artan bekleme uygulanır.
 - **İki telefon canlı senkronizasyon (opsiyonel Supabase)** — aynı oda koduna
   bağlanan iki telefon mesaj, fotoğraf/video (Storage `couple-media`), rubrik,
   plan, kapsül ve bucket list değişimlerini Realtime ile paylaşır.
@@ -62,8 +78,15 @@ bildirim alabilirsin.
 - **Enerji modu** — "Enerjim düşük" seçildiğinde ağır görevler mikro varyantlara
   çevrilir; amaç seriyi kaybetmemek.
 - **Kalıcılık ve performans** — `shared_preferences` üzerinden JSON; yazımlar
-  debounce edilir, arka plana geçerken zorla diske yazılır. iPhone ProMotion
-  için 120 Hz ve sohbet balonlarında `RepaintBoundary` kullanılır.
+  debounce edilir, arka plana geçerken zorla diske yazılır. **`save()` gerçek
+  disk yazımı bitince resolve olur**, bozuk kayıt `cache.game_state.corrupted`
+  anahtarına taşınır ve `schema_version` ile sürümlenir. iPhone ProMotion için
+  120 Hz ve sohbet balonlarında `RepaintBoundary` kullanılır.
+- **Yedekleme / geri yükleme** — Ayarlar → Yedekleme: tüm veri tek JSON olarak
+  paylaşılır (pano + paylaşım sayfası). İçe aktarmada `app`, `schema_version`,
+  `couple` ve `partners` doğrulanır; bozuk yedek uygulama durumunu değiştirmez.
+- **Tek oyunculu kayıt migrasyonu** — v5'te olduğu gibi eski kayıt ezilmez;
+  profil/görevler cihaz sahibinin koltuğuna taşınır, sohbet ve rubrik korunur.
 
 ## Ekranlar
 
@@ -81,22 +104,36 @@ seçimi ve sohbet taslağı korunur.
 
 ```
 lib/
-├── core/          # tema, sabitler, tarih/JSON yardımcıları, platform medya köprüsü (io/web)
+├── core/          # tema, sabitler, tarih/JSON/stable-hash yardımcıları, platform medya köprüsü
 ├── domain/
-│   ├── entities/  # UserProfile, Quest, PartnerData, CoupleState, ChatMessage (medya/yanıt/okundu)…
+│   ├── entities/  # UserProfile, Quest (isCustom), PartnerData, CoupleState (tombstone), ChatMessage (reaction/edit)…
 │   └── services/  # XpEngine, QuestGenerator, CoupleEfficiencyEngine, CoupleSeeder
-├── data/          # GameStore sözleşmesi; LocalGameStore / MemoryGameStore (test)
-├── services/      # AppSettings, MediaService, NotificationService, PushService, SupabaseSyncService, CloudSyncCoordinator
-├── application/   # GameState, GameController, CoupleBootstrap, AppServices, PinLockController
-└── presentation/  # onboarding, shell, dashboard, development, chat (+ medya/video), progress, birthday, PIN, in-app bildirim banner'ı
+├── data/          # GameStore: schemaVersion + corrupted backup + Completer'lı save
+├── services/      # AppSettings, MediaService, NotificationService, PushService,
+│                  # SupabaseSyncService, CloudSyncCoordinator, SyncOutbox,
+│                  # PinSecurity, SecureSecretsStore, BiometricService, BackupService
+├── application/   # GameState, GameController (facade), GameMutation
+│   └── controllers/  # QuestController · DevelopmentController · CoupleChatController
+│                     # CoupleGoalsController · CoupleSyncController
+└── presentation/  # onboarding, shell, dashboard, development, chat (+presence/tepki), progress,
+                   # birthday, PIN (+biyometri), in-app bildirim banner'ı
+supabase/
+├── migrations/20261123000000_v6_security.sql   # RLS + room_members + özel kova
+└── functions/send-couple-push/index.ts         # OneSignal REST anahtarı sunucuda
 ```
 
-- Durum yönetimi: **flutter_riverpod**.
+- Durum yönetimi: **flutter_riverpod 3** (Notifier + `select` tabanlı granular
+  provider'lar: `dashboardSnapshotProvider`, `questsProvider`, `messagesProvider`…).
 - `GameState` iki modu destekler: **tek oyuncu** (legacy `setup/profile/quests`)
   ve **çift modu** (`partners` haritası + `activePartnerId`). Üst seviye alanlar
   her zaman aktif partnerin aynasıdır → eski ekranlar değişmeden çalışır.
-- Disk erişimi controller'dan soyutlanmıştır → testler `MemoryGameStore` ile
-  diske dokunmadan, zamanı sabitleyerek (`now` parametreleri) çalışır.
+- `GameController` artık ince bir facade'dır; iş kuralları 5 modül controller'da
+  toplanır. Her modül yalnızca `GameStateAccess` sözleşmesini bilir.
+- **Deterministik senkron:** `MutationOrigin` (local/remote) + monoton
+  `localRevision`. Uzak paketler revizyonu artırmaz → echo yok; sabit
+  `Timer(700/900 ms)` yarış penceresi kaldırıldı.
+- Disk erişimi controller'dan soyutlanmıştır → testler `MemoryGameStore`,
+  `MemorySyncOutbox` ve fake `CloudSyncBackend` ile ağa/diske dokunmadan çalışır.
 
 ## Kişiselleştirme
 
@@ -110,25 +147,33 @@ lib/
 - **Varsayılan PIN / oda kodu:** `AppSettings.defaultPin` (`3101`) ve
   `AppSettings.defaultRoomCode` (`YUSUF-CEYDA-2026`).
 
-## Supabase kurulumu (opsiyonel, 30 saniye)
+## Supabase kurulumu (opsiyonel)
 
 Bulut tamamen opsiyoneldir; **hiçbir şey yapılmazsa uygulama yerel çalışır.**
 
-1. [supabase.com](https://supabase.com) → yeni proje → **SQL Editor**.
-2. Ayarlar → ☁️ İki Telefon Canlı Senkronizasyon → **SQL şemasını kopyala**
-   düğmesine bas (aynı SQL `SupabaseSyncService.schemaSql` içinde de durur) ve
-   SQL Editor'a yapıştırıp çalıştır. Bu; `couple_rooms`, `chat_messages`,
-   `couple-media` Storage kovası, RLS politikaları ve Realtime yayınını kurar.
-3. Supabase → **Project Settings → API**'den **Project URL** ve **anon public**
+1. [supabase.com](https://supabase.com) → yeni proje.
+2. **Authentication → Providers → Anonymous → Enable.** (RLS, `auth.uid()`
+   üzerinden çalışır; iki cihaz da anonim oturum açar.)
+3. **SQL Editor** → `supabase/migrations/20261123000000_v6_security.sql`
+   dosyasının tamamını çalıştır. Bu migrasyon:
+   - `couple_rooms`, `room_members`, `chat_messages` tablolarını + indeksleri,
+   - `is_room_member()` / `member_role()` ve `join_couple_room()` fonksiyonlarını,
+   - **v6 RLS politikalarını** (oda üyeliği + gönderen rolü doğrulaması),
+   - **özel** `couple-media` kovasını ve klasör bazlı Storage politikalarını,
+   - Realtime yayınını (`insert/update/delete`) ve `replica identity full`'u kurar.
+   Alternatif: `supabase db push` / `supabase migration up`.
+4. Supabase → **Project Settings → API**'den **Project URL** ve **anon/publishable**
    anahtarını al.
-4. Uygulamada Ayarlar → aynı bölüme URL, anon key ve **Oda Kodu**
-   (`YUSUF-CEYDA-2026`) gir. Yusuf'un telefonunda **Yusuf**, Ceyda'nınkinde
-   **Ceyda** rolünü seç → **Bağlan ve Senkronize Et**.
-5. İki telefon da aynı odaya bağlandığında mesajlar, fotoğraf/video, rubrik,
-   plan ve kapsüller Realtime ile akar; partnerden gelen mesaj yerel bildirim
-   üretir. İlk bağlantıda odadaki mevcut durum cihaza çekilir; sonrasında
-   değişiklikler iki yönlü gider. Bağlantı koparsa uygulama sessizce yerel moda
-   döner.
+5. Uygulamada Ayarlar → ☁️ İki Telefon Canlı Senkronizasyon → URL, anon key ve
+   **Oda Kodu** (`YUSUF-CEYDA-2026`). Yusuf'un telefonunda **Yusuf**,
+   Ceyda'nınkinde **Ceyda** rolü → **Bağlan ve Senkronize Et**.
+6. İki telefon aynı odaya bağlandığında mesajlar (insert/update/**delete**),
+   presence ("çevrimiçi/yazıyor…"), fotoğraf/video (imzalı URL), rubrik, plan ve
+   kapsüller Realtime ile akar. URL/anahtar değiştirilirse istemci yeniden
+   başlatmaya gerek kalmadan `dispose()` + yeniden `initialize` edilir.
+
+> Oda kodu bir **davet sırrıdır**: bilen cihaz odaya katılabilir. Oda başına en
+> fazla 2 üye ve rol başına 1 cihaz (`room_members` unique constraint) kabul edilir.
 
 ## OneSignal kurulumu (kapalıyken push)
 
@@ -136,38 +181,48 @@ Yerel bildirimler yalnızca uygulama açıkken/arka plandayken çalışır. Uygu
 tamamen kapalıyken partnerine ulaşmak için:
 
 1. [onesignal.com](https://onesignal.com) → yeni uygulama → **App ID**'yi al.
-2. OneSignal → **Settings → Keys & IDs** → **REST API Key** oluştur.
+2. OneSignal → **Settings → Keys & IDs** → **REST API Key** oluştur. Bu anahtar
+   **cihaza girilmez**; yalnızca Supabase secret olarak saklanır:
+   ```bash
+   supabase secrets set \
+     ONESIGNAL_APP_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
+     ONESIGNAL_REST_API_KEY=os_v2_...
+   supabase functions deploy send-couple-push
+   ```
 3. OneSignal → **Push → Apple iOS** → APNs anahtarını (`.p8`) ve Key ID'yi yükle;
    Bundle ID `dev.levelup.levelupLife` ile eşleştir.
 4. Xcode'da Runner hedefinde **Push Notifications** ve **Background Modes →
    Remote notifications** açık olmalı. `ios/Runner/Runner.entitlements`
-   `aps-environment` içerir; OneSignal 5.8 için minimum iOS sürümü **15.0**.
-5. Uygulamada Ayarlar → **🔔 Kapalıyken de Bildirim** bölümüne App ID + REST API
-   Key gir → kaydet → **🚀 OneSignal Push Testi Gönder**.
+   `aps-environment` içerir; minimum iOS sürümü **15.0**.
+5. Uygulamada Ayarlar → **🔔 Kapalıyken de Bildirim** bölümüne **yalnızca App ID**
+   gir → kaydet → **🚀 OneSignal Push Testi Gönder**.
 
-Cihaz sahibi OneSignal'a `external_id` olarak `yusuf` / `ceyda` ile giriş yapar;
-gönderim partnerin external id'sine hedeflenir. REST API anahtarı yalnızca
-cihazda saklanır ve Web'de push tamamen no-op çalışır.
+Cihaz sahibi OneSignal'a `external_id` olarak `yusuf` / `ceyda` ile giriş yapar.
+Push isteğini `send-couple-push` Edge Function'ı yapar; fonksiyon çağıranın
+oturumunu ve `room_members` üyeliğini doğrular, alıcının karşı partner olduğunu
+kontrol eder. Böylece REST anahtarı istemciye hiç inmez.
 
 ## İzinler
 
-- **iOS** (`ios/Runner/Info.plist`): kamera, fotoğraf galerisi, mikrofon ve
-  bildirim açıklamaları; `UIBackgroundModes → remote-notification`,
+- **iOS** (`ios/Runner/Info.plist`): kamera, fotoğraf galerisi, mikrofon,
+  **Face ID (`NSFaceIDUsageDescription`)** ve bildirim açıklamaları;
+  `UIBackgroundModes → remote-notification`,
   `CADisableMinimumFrameDurationOnPhone` (ProMotion). `AppDelegate.swift` ön
   planda da bildirim göstermek için `UNUserNotificationCenter` delegesini atar.
   `Runner.entitlements` push (`aps-environment`) hakkını taşır; deployment
   target **iOS 15.0**'dır.
 - **Android** (`AndroidManifest.xml`): `CAMERA`, `RECORD_AUDIO`,
   `READ_MEDIA_IMAGES/VIDEO`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`,
-  zamanlanmış bildirim alıcıları. `flutter_local_notifications` için
+  zamanlanmış bildirim alıcıları. `local_auth` için `MainActivity`
+  **`FlutterFragmentActivity`** türetir; `flutter_local_notifications` için
   `build.gradle.kts` içinde core library desugaring açıktır.
 
 ## Kurulum
 
 ```bash
 flutter pub get
-flutter run -d chrome      # web (kamera/galeri data URL olarak çalışır)
-flutter run -d ios         # iPhone (kamera + galeri + bildirimler)
+flutter run -d chrome      # web (güvenli inline sınır: 250 KB; büyük medya Supabase Storage)
+flutter run -d ios         # iPhone (kamera + galeri + bildirimler + Face ID)
 flutter build web --release
 flutter build ios --simulator --no-codesign   # iOS 15+ / OneSignal
 ```
@@ -175,30 +230,43 @@ flutter build ios --simulator --no-codesign   # iOS 15+ / OneSignal
 Gerçek cihazda imzalı build için Apple Developer hesabında Push Notifications
 hakkı ve geçerli bir provisioning profile gerekir.
 
-Depo boşsa veya eski tek oyunculu bir kayıt varsa `CoupleBootstrap.initialState()`
-tohumu yazılır: iki profil, 6 günlük gerçekçi XP geçmişi, bugünün görevleri,
-sohbet geçmişi ve bucket list hazır gelir. Testler boş store ile çalıştığı için
-onboarding akışı bozulmaz.
+Depo boşsa veya eski tek oyunculu bir kayıt varsa:
+- depo tamamen boşsa `CoupleBootstrap.initialState()` tohumu yazılır,
+- **eski tek oyunculu kayıt varsa ezilmez**: `CoupleBootstrap.migrateFromLegacy`
+  profili/görevleri cihaz sahibinin koltuğuna taşır, sohbet ve rubrik korunur.
+
+## v6.0 kapsamı
+
+Tamamlanan sertleştirme ve özellikler bu README'de listelenmiştir. Bilinçli
+olarak **bu sürüme alınmayan** iki başlık (v6.1 yol haritası):
+
+- **Sesli not (voice note):** `record` + ses oynatma paketi ve Android/iOS
+  mikrofon izin akışı gerektirir; `RECORD_AUDIO` izni şimdilik yalnızca video
+  kaydı için kullanılıyor.
+- **Ortak çift görevleri (co-op quests) ve haftada 1 seri dondurma UI'ı:**
+  `Streak.freezeMissedDay` / `AppConstants.startingFreezeTokens` altyapısı hazır;
+  kullanıcıya görünen kart/akış bir sonraki sürümde eklenecek.
 
 ## Kalite kontrolleri
 
 ```bash
 flutter analyze            # No issues found!
-flutter test               # 310 test
+flutter test               # 338 test
 flutter build web --release
 flutter build ios --simulator --no-codesign
 ```
 
 Test kapsamı: XP motoru ve seviye eğrisi, seri kuralları (dondurma dahil),
 görev üretimi, `GameState`/`UserProfile` JSON round-trip'i, onboarding akışı,
-verimlilik motoru (ağırlıklar, nötr skor, beraberlik, sinerji sınırı), çift
-controller'ı (partner geçişi, rubrik XP'si, sinerji ödülü, sohbet/fotoğraf,
-kalıcılık, **tahribatsız uzak mesaj birleştirme**), dört sekmeli kabuk + çift
-ekranları, **ChatMessage medya/yanıt/okundu serileştirmesi**, **dört özel gün ve
-geri sayım**, **üç katmanlı bildirim metni/plan zamanlaması**, **OneSignal push
-payload'ları**, **Supabase `SyncConfig` doğrulaması + SQL şeması**, **PIN kilidi
-numpad'i**, **kilitli cihaz kimliği** ve **yanıtla / arama / video albüm
-filtresi** akışları.
+verimlilik motoru, çift controller'ı (partner geçişi, rubrik XP'si, sinerji,
+sohbet/fotoğraf, kalıcılık, **tahribatsız uzak mesaj birleştirme**), dört
+sekmeli kabuk + çift ekranları, medya/yanıt/okundu serileştirmesi, özel günler,
+bildirim metni/plan zamanlaması, OneSignal Edge Function payload'ları, Supabase
+`SyncConfig` + **v6 SQL güvenlik şeması**, PIN numpad'i, kilitli cihaz kimliği
+ve **v6 regresyon testleri**: `refreshQuests` özel görev koruması,
+`toggleBucketGoal` tek seferlik XP, `addCustomBonus` sınırları, tombstone
+birleştirmesi, uzak durumda cihaz kimliği koruması, **kalıcı Outbox flush**,
+**PIN brute-force + grace period**, **tuzlu SHA-256 PIN**, DND hesapları.
 
 ## Lisans
 

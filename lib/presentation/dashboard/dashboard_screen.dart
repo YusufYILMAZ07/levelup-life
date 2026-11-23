@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/game_controller.dart';
-import '../../application/game_state.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/theme.dart';
 import '../../core/utils/format_x.dart';
@@ -53,7 +52,7 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GameState state = ref.watch(gameProvider);
+    final DashboardSnapshot state = ref.watch(dashboardSnapshotProvider);
     final UserProfile? profile = state.profile;
     final UserSetup? setup = state.setup;
     if (profile == null || setup == null) return const SizedBox.shrink();

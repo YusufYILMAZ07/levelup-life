@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'application/app_services.dart';
 import 'application/couple_bootstrap.dart';
 import 'application/game_controller.dart';
+import 'application/game_state.dart';
 import 'application/pin_lock_controller.dart';
 import 'core/constants/app_constants.dart';
 import 'core/theme/theme.dart';
@@ -20,12 +21,24 @@ Future<void> main() async {
   // uygulama "loading" ekranı göstermeden doğru ekranla açılır.
   final GameStore store = await LocalGameStore.open();
   // Cihaz tercihleri (bildirim / PIN / Supabase / avatarlar) ayrı saklanır;
-  // bulut yapılandırılmamışsa uygulama %100 yerel çalışır.
+  // bulut yapılandırılmamışsa uygulama %100 yerel çalışır. PIN hash'i
+  // `flutter_secure_storage` içinden okunur.
   final AppSettingsStore settingsStore = await LocalAppSettingsStore.open();
-  // Hediye modu: depo boşsa (veya eski tek oyunculu kayıt varsa) çift sürümü
-  // tohumu yazılır → uygulama Yusuf & Ceyda profilleriyle açılır.
-  if (store.load()?.isCoupleEdition != true) {
+  final AppSettings settings = settingsStore.load();
+  // Hediye modu: depo boşsa veya yalnızca yarım kalmış (onboarding
+  // tamamlanmamış) bir kayıt varsa çift sürümü tohumu yazılır.
+  final GameState? existing = store.load();
+  if (existing == null || (!existing.isCoupleEdition && !existing.isOnboarded)) {
     await store.save(CoupleBootstrap.initialState());
+  } else if (!existing.isCoupleEdition && existing.isOnboarded) {
+    // v6: eski tek oyunculu kayıt **ezilmez**; cihaz sahibinin koltuğuna
+    // taşınır (profil, XP, görevler ve sohbet korunur).
+    await store.save(
+      CoupleBootstrap.migrateFromLegacy(
+        existing,
+        deviceRole: settings.deviceRole,
+      ),
+    );
   }
   runApp(
     ProviderScope(

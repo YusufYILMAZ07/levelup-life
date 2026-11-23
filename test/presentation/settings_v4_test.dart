@@ -40,7 +40,11 @@ void main() {
     expect(find.byKey(const Key('device-owner-ceyda')), findsOneWidget);
     expect(find.byKey(const Key('device-test-mode')), findsOneWidget);
     expect(find.byKey(const Key('onesignal-app-id')), findsOneWidget);
-    expect(find.byKey(const Key('onesignal-rest-key')), findsOneWidget);
+    // v6: REST anahtarı istemciden kaldırıldı.
+    expect(find.byKey(const Key('onesignal-rest-key')), findsNothing);
+    expect(find.byKey(const Key('notif-dnd')), findsOneWidget);
+    expect(find.byKey(const Key('pin-grace')), findsOneWidget);
+    expect(find.byKey(const Key('biometric-toggle')), findsOneWidget);
     expect(find.byKey(const Key('avatar-yusuf')), findsOneWidget);
     expect(find.byKey(const Key('avatar-ceyda')), findsOneWidget);
     expect(find.byKey(const Key('notif-messages')), findsOneWidget);

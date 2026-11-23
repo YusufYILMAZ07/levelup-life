@@ -5,6 +5,8 @@ import '../../application/pin_lock_controller.dart';
 import '../../core/theme/theme.dart';
 import '../../domain/entities/entities.dart';
 import '../../services/app_settings.dart';
+import '../../services/biometric_service.dart';
+import '../../services/pin_security.dart';
 import '../widgets/partner_avatar.dart';
 
 /// Açılışta / uygulamaya dönüşte gösterilen zarif 4 haneli numpad kilidi.
@@ -42,32 +44,71 @@ class _PinLockScreenState extends ConsumerState<PinLockScreen> {
     });
   }
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ref.read(appSettingsProvider).biometricEnabled) {
+        _tryBiometric();
+      }
+    });
+  }
+
+  Future<void> _tryBiometric() async {
+    if (!ref.read(appSettingsProvider).biometricEnabled) return;
+    final BiometricResult result = await ref
+        .read(pinLockProvider.notifier)
+        .unlockWithBiometrics();
+    if (!mounted || result.isSuccess) return;
+    final String? message = result.message;
+    if (message != null) setState(() => _error = message);
+  }
+
   Future<void> _submit() async {
+    final PinLockController controller = ref.read(pinLockProvider.notifier);
+    if (controller.isLockedOut) {
+      setState(() {
+        _checking = false;
+        _entered = '';
+        _error =
+            'Çok fazla deneme · ${controller.lockoutRemaining.inSeconds} sn '
+            'sonra tekrar dene';
+      });
+      return;
+    }
     setState(() => _checking = true);
-    final bool ok = ref.read(pinLockProvider.notifier).unlockWithPin(_entered);
+    final bool ok = controller.unlockWithPin(_entered);
     if (ok) {
       if (mounted) setState(() => _checking = false);
       return;
     }
     await Future<void>.delayed(const Duration(milliseconds: 260));
     if (!mounted) return;
+    final bool lockedOut = controller.isLockedOut;
+    final int remaining =
+        PinAttemptPolicy.freeAttempts - controller.failedAttempts;
     setState(() {
-      _error = 'PIN hatalı · tekrar dene';
+      _error = lockedOut
+          ? 'Bekleme süresi · ${controller.lockoutRemaining.inSeconds} sn'
+          : remaining > 0 && remaining <= 2
+          ? 'PIN hatalı · $remaining deneme hakkı kaldı'
+          : 'PIN hatalı · tekrar dene';
       _entered = '';
       _checking = false;
     });
   }
 
   void _showHint() {
-    final String pin = ref.read(appSettingsProvider).pinCode;
+    final AppSettings settings = ref.read(appSettingsProvider);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: Text(
-            pin == AppSettings.defaultPin
-                ? 'İpucu: Yıldönümümüz · 3101 💍'
-                : 'PIN yalnızca bu telefonda saklanır 🔒',
+            settings.hasPin
+                ? 'PIN yalnızca tuzlanmış hash olarak bu telefonda saklanır 🔒'
+                : 'İpucu: Yıldönümümüz · 3101 💍',
           ),
           duration: const Duration(seconds: 3),
         ),
@@ -201,6 +242,29 @@ class _PinLockScreenState extends ConsumerState<PinLockScreen> {
                       onDelete: _onDelete,
                       enabled: !_checking,
                     ),
+                    if (ref.watch(
+                      appSettingsProvider.select(
+                        (AppSettings settings) => settings.biometricEnabled,
+                      ),
+                    )) ...<Widget>[
+                      const SizedBox(height: AppSpacing.xs),
+                      TextButton.icon(
+                        key: const Key('pin-biometric'),
+                        onPressed: _checking ? null : _tryBiometric,
+                        icon: const Icon(
+                          Icons.fingerprint_rounded,
+                          size: 20,
+                          color: CouplePalette.ceyda,
+                        ),
+                        label: Text(
+                          'Face ID / Parmak İzi',
+                          style: AppTypography.caption.copyWith(
+                            color: CouplePalette.ceyda,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: AppSpacing.md),
                     TextButton(
                       key: const Key('pin-hint'),

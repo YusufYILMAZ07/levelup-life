@@ -1,5 +1,6 @@
 import '../../core/utils/date_x.dart';
 import '../../core/utils/json_x.dart';
+import '../../core/utils/stable_key.dart';
 import 'chat_message.dart';
 import 'partner_data.dart';
 import 'stat_key.dart';
@@ -261,6 +262,7 @@ final class BucketGoal {
     this.rewardPoints = CoupleState.bucketBonusXp,
     this.isDone = false,
     this.completedAt,
+    this.rewardClaimed = false,
   });
 
   final String id;
@@ -274,6 +276,13 @@ final class BucketGoal {
   final bool isDone;
   final DateTime? completedAt;
 
+  /// Co-Op XP'si bu hedef için **bir kez** verildi mi?
+  ///
+  /// Hedef geri alınıp yeniden tamamlanırsa XP ikinci kez verilmez
+  /// (v5'teki sonsuz XP istismarını kapatır). Geri alma XP'yi silmez;
+  /// böylece seviye geçmişi bozulmaz.
+  final bool rewardClaimed;
+
   BucketGoal toggle(DateTime now) => BucketGoal(
     id: id,
     title: title,
@@ -282,6 +291,22 @@ final class BucketGoal {
     rewardPoints: rewardPoints,
     isDone: !isDone,
     completedAt: isDone ? null : now,
+    rewardClaimed: rewardClaimed || !isDone,
+  );
+
+  /// Tamamlanmış hedefi ödül verilmiş olarak işaretler.
+  BucketGoal markRewardClaimed() =>
+      rewardClaimed ? this : _copyWithRewardClaimed(true);
+
+  BucketGoal _copyWithRewardClaimed(bool claimed) => BucketGoal(
+    id: id,
+    title: title,
+    emoji: emoji,
+    detail: detail,
+    rewardPoints: rewardPoints,
+    isDone: isDone,
+    completedAt: completedAt,
+    rewardClaimed: claimed,
   );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -292,6 +317,7 @@ final class BucketGoal {
     'reward_points': rewardPoints,
     'is_done': isDone,
     'completed_at': completedAt?.toIso8601String(),
+    'reward_claimed': rewardClaimed,
   };
 
   factory BucketGoal.fromJson(Map<String, dynamic> json) => BucketGoal(
@@ -305,6 +331,11 @@ final class BucketGoal {
     ),
     isDone: JsonX.asBool(json['is_done']),
     completedAt: JsonX.asDate(json['completed_at']),
+    // Eski kayıtlarda bayrak yok; tamamlanmış hedef ödülünü almış sayılır.
+    rewardClaimed: JsonX.asBool(
+      json['reward_claimed'],
+      fallback: JsonX.asBool(json['is_done']),
+    ),
   );
 
   @override
@@ -598,6 +629,8 @@ final class CoupleState {
     this.stake = DuelStake.coffee,
     this.scheduleBlocks = const <ScheduleBlock>[],
     this.rewardCapsules = const <RewardCapsule>[],
+    this.deletedMessageTombstones = const <String, DateTime>{},
+    this.deletedLoveNoteTombstones = const <String, DateTime>{},
   });
 
   /// Yusuf'un Ceyda'ya doğum günü mektubu — modalden düzenlenebilir.
@@ -652,6 +685,18 @@ final class CoupleState {
   final List<ChatMessage> messages;
 
   final DuelStake stake;
+
+  /// Silinen mesaj kimlikleri → silinme zamanı (tombstone).
+  ///
+  /// Uzak cihazdan gelen geçmiş, silinen mesajı geri diriltemez. Kayıtlar
+  /// [tombstoneTtl] sonrası temizlenir; böylece depo sınırsız büyümez.
+  final Map<String, DateTime> deletedMessageTombstones;
+
+  /// Silinen özel aşk notlarının sabit anahtarı → silinme zamanı.
+  final Map<String, DateTime> deletedLoveNoteTombstones;
+
+  /// Tombstone kayıtlarının saklanma süresi.
+  static const Duration tombstoneTtl = Duration(days: 180);
 
   // ── Anahtar yardımcıları ─────────────────────────────────────────────────
 
@@ -849,8 +894,17 @@ final class CoupleState {
 
   List<String> get allLoveNotes => <String>[
     ...LoveNotes.all,
-    ...customLoveNotes,
+    for (final String note in customLoveNotes)
+      if (!isLoveNoteTombstoned(note)) note,
   ];
+
+  /// Bu metin daha önce silinmiş mi? (uzak birleştirmede geri diriltmeyi önler)
+  bool isLoveNoteTombstoned(String note) =>
+      deletedLoveNoteTombstones.containsKey(StableKey.tombstoneKey(note));
+
+  /// Mesaj kimliği tombstone'da mı?
+  bool isMessageTombstoned(String messageId) =>
+      deletedMessageTombstones.containsKey(messageId);
 
   /// Üreticinin sıradaki notu (imleç mod ile döner).
   String get currentLoveNote {
@@ -899,11 +953,112 @@ final class CoupleState {
     return changed ? copyWith(messages: next) : this;
   }
 
-  CoupleState deleteMessage(String messageId) {
+  /// Mesajı siler ve tombstone bırakır.
+  ///
+  /// Yerelde kayıt yoksa bile tombstone yazılır: karşı telefondan geç gelen
+  /// kopya yeniden görünmez.
+  CoupleState deleteMessage(String messageId, {DateTime? at}) {
+    final String id = messageId.trim();
+    if (id.isEmpty) return this;
     final List<ChatMessage> next = messages
-        .where((ChatMessage message) => message.id != messageId)
+        .where((ChatMessage message) => message.id != id)
         .toList(growable: false);
-    return next.length == messages.length ? this : copyWith(messages: next);
+    final Map<String, DateTime> tombstones = <String, DateTime>{
+      ...deletedMessageTombstones,
+      id: at ?? DateTime.now(),
+    };
+    return copyWith(
+      messages: next,
+      deletedMessageTombstones: tombstones,
+    );
+  }
+
+  /// Özel aşk notunu siler (metinle eşleşen tombstone yazar).
+  CoupleState deleteLoveNote(String note, {DateTime? at}) {
+    final String trimmed = note.trim();
+    if (trimmed.isEmpty) return this;
+    final String key = StableKey.tombstoneKey(trimmed);
+    final Map<String, DateTime> tombstones = <String, DateTime>{
+      ...deletedLoveNoteTombstones,
+      key: at ?? DateTime.now(),
+    };
+    final List<String> next = customLoveNotes
+        .where((String item) => StableKey.tombstoneKey(item) != key)
+        .toList(growable: false);
+    return copyWith(
+      customLoveNotes: next,
+      deletedLoveNoteTombstones: tombstones,
+    );
+  }
+
+  /// Uzaktan gelen özel notları tombstone'lara saygı duyarak birleştirir.
+  CoupleState mergeLoveNotes(Iterable<String> remote) {
+    final List<String> merged = <String>[...customLoveNotes];
+    final Set<String> known = <String>{
+      for (final String note in merged) StableKey.tombstoneKey(note),
+    };
+    bool changed = false;
+    for (final String raw in remote) {
+      final String note = raw.trim();
+      if (note.isEmpty) continue;
+      final String key = StableKey.tombstoneKey(note);
+      if (deletedLoveNoteTombstones.containsKey(key)) continue;
+      if (!known.add(key)) continue;
+      merged.add(note);
+      changed = true;
+    }
+    return changed ? copyWith(customLoveNotes: merged) : this;
+  }
+
+  /// İki cihazın tombstone kayıtlarını birleştirir (silme her zaman kazanır).
+  CoupleState mergeTombstones(CoupleState other) {
+    final Map<String, DateTime> messages = <String, DateTime>{
+      ...deletedMessageTombstones,
+    };
+    for (final MapEntry<String, DateTime> entry
+        in other.deletedMessageTombstones.entries) {
+      final DateTime? current = messages[entry.key];
+      if (current == null || entry.value.isAfter(current)) {
+        messages[entry.key] = entry.value;
+      }
+    }
+    final Map<String, DateTime> notes = <String, DateTime>{
+      ...deletedLoveNoteTombstones,
+    };
+    for (final MapEntry<String, DateTime> entry
+        in other.deletedLoveNoteTombstones.entries) {
+      final DateTime? current = notes[entry.key];
+      if (current == null || entry.value.isAfter(current)) {
+        notes[entry.key] = entry.value;
+      }
+    }
+    return copyWith(
+      deletedMessageTombstones: messages,
+      deletedLoveNoteTombstones: notes,
+    );
+  }
+
+  /// Süresi geçmiş tombstone'ları budar (varsayılan 180 gün).
+  CoupleState pruneTombstones({DateTime? now, Duration ttl = tombstoneTtl}) {
+    final DateTime cutoff = (now ?? DateTime.now()).subtract(ttl);
+    final Map<String, DateTime> messages = <String, DateTime>{
+      for (final MapEntry<String, DateTime> entry
+          in deletedMessageTombstones.entries)
+        if (entry.value.isAfter(cutoff)) entry.key: entry.value,
+    };
+    final Map<String, DateTime> notes = <String, DateTime>{
+      for (final MapEntry<String, DateTime> entry
+          in deletedLoveNoteTombstones.entries)
+        if (entry.value.isAfter(cutoff)) entry.key: entry.value,
+    };
+    if (messages.length == deletedMessageTombstones.length &&
+        notes.length == deletedLoveNoteTombstones.length) {
+      return this;
+    }
+    return copyWith(
+      deletedMessageTombstones: messages,
+      deletedLoveNoteTombstones: notes,
+    );
   }
 
   CoupleState upsertMessage(ChatMessage message) {
@@ -941,6 +1096,8 @@ final class CoupleState {
     DuelStake? stake,
     List<ScheduleBlock>? scheduleBlocks,
     List<RewardCapsule>? rewardCapsules,
+    Map<String, DateTime>? deletedMessageTombstones,
+    Map<String, DateTime>? deletedLoveNoteTombstones,
   }) => CoupleState(
     liveStatus: liveStatus ?? this.liveStatus,
     bonusActions: bonusActions ?? this.bonusActions,
@@ -955,6 +1112,10 @@ final class CoupleState {
     stake: stake ?? this.stake,
     scheduleBlocks: scheduleBlocks ?? this.scheduleBlocks,
     rewardCapsules: rewardCapsules ?? this.rewardCapsules,
+    deletedMessageTombstones:
+        deletedMessageTombstones ?? this.deletedMessageTombstones,
+    deletedLoveNoteTombstones:
+        deletedLoveNoteTombstones ?? this.deletedLoveNoteTombstones,
   );
 
   // ── Mutasyonlar (hepsi yeni örnek döner) ─────────────────────────────────
@@ -1085,6 +1246,16 @@ final class CoupleState {
     'reward_capsules': <Map<String, dynamic>>[
       for (final RewardCapsule capsule in rewardCapsules) capsule.toJson(),
     ],
+    'deleted_messages': <String, String>{
+      for (final MapEntry<String, DateTime> entry
+          in deletedMessageTombstones.entries)
+        entry.key: entry.value.toUtc().toIso8601String(),
+    },
+    'deleted_love_notes': <String, String>{
+      for (final MapEntry<String, DateTime> entry
+          in deletedLoveNoteTombstones.entries)
+        entry.key: entry.value.toUtc().toIso8601String(),
+    },
   };
 
   factory CoupleState.fromJson(Map<String, dynamic> json) {
@@ -1152,6 +1323,20 @@ final class CoupleState {
       }
     }
 
+    final Map<String, DateTime> messageTombstones = <String, DateTime>{};
+    JsonX.asMap(json['deleted_messages']).forEach((String key, dynamic value) {
+      final DateTime? at = JsonX.asDate(value);
+      if (key.trim().isNotEmpty && at != null) messageTombstones[key] = at;
+    });
+
+    final Map<String, DateTime> loveNoteTombstones = <String, DateTime>{};
+    JsonX.asMap(
+      json['deleted_love_notes'],
+    ).forEach((String key, dynamic value) {
+      final DateTime? at = JsonX.asDate(value);
+      if (key.trim().isNotEmpty && at != null) loveNoteTombstones[key] = at;
+    });
+
     return CoupleState(
       liveStatus: statuses,
       bonusActions: actions,
@@ -1169,6 +1354,8 @@ final class CoupleState {
       stake: DuelStake.fromCode(JsonX.asString(json['stake'])),
       scheduleBlocks: rawSchedule is List ? schedule : ScheduleSeed.week(),
       rewardCapsules: rawCapsules is List ? capsules : RewardCapsule.starter,
+      deletedMessageTombstones: messageTombstones,
+      deletedLoveNoteTombstones: loveNoteTombstones,
     );
   }
 

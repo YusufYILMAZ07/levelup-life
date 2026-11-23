@@ -14,6 +14,7 @@ final class PickedMedia {
     this.durationSeconds = 0,
     this.thumbnailPath,
     this.bytes,
+    this.requiresUpload = false,
   });
 
   /// `ChatMessage.mediaPathOrUrl` içine yazılacak değer.
@@ -24,6 +25,10 @@ final class PickedMedia {
 
   /// Bulut yüklemesi için ham veri (yalnızca seçim anında bellekte).
   final Uint8List? bytes;
+
+  /// Web'de 250 KB üstü medya `localStorage`'a gömülemez; önce Supabase
+  /// Storage'a yüklenmesi gerekir.
+  final bool requiresUpload;
 
   bool get isVideo => mediaType == ChatMediaType.video;
 }
@@ -49,8 +54,10 @@ final class MediaService {
 
   final ImagePicker _picker;
 
-  /// Web'de localStorage taşma riskine karşı güvenli üst sınır (fotoğraf).
-  static const int maxInlineBytes = 6 * 1024 * 1024;
+  /// Web'de `localStorage` kotasını (genelde 5 MB) korumak için inline üst
+  /// sınır. v5'te 6 MB'a kadar base64 gömülüyordu; bu, tüm oyun kaydını tek
+  /// seferde bozabiliyordu.
+  static const int maxInlineBytes = 250 * 1024;
 
   /// Hızlı yükleme ve düşük bellek kullanımı için video tavanı.
   static const int maxVideoBytes = 20 * 1024 * 1024;
@@ -61,6 +68,7 @@ final class MediaService {
   Future<PickedMedia?> pickImage({
     required ImageSource source,
     bool forAvatar = false,
+    bool allowCloudUpload = false,
   }) async {
     final XFile? file;
     try {
@@ -89,16 +97,34 @@ final class MediaService {
     }
 
     if (kIsWeb) {
-      if (bytes.length > maxInlineBytes) {
-        throw const MediaPickException(
-          'Fotoğraf çok büyük (en fazla 6 MB). Daha küçük bir kare seç.',
+      final String mime = _mimeOf(file, 'image/jpeg');
+      if (bytes.length <= maxInlineBytes) {
+        return PickedMedia(
+          source: 'data:$mime;base64,${base64Encode(bytes)}',
+          mediaType: ChatMediaType.image,
+          bytes: bytes,
         );
       }
-      final String mime = _mimeOf(file, 'image/jpeg');
+      if (forAvatar) {
+        throw const MediaPickException(
+          'Profil fotoğrafı çok büyük (en fazla 250 KB). Daha küçük bir kare '
+          'seç veya uygulamayı telefonda kullan.',
+        );
+      }
+      if (!allowCloudUpload) {
+        throw const MediaPickException(
+          'Web’de büyük fotoğraflar için Supabase bağlantısı gerekli. '
+          'Ayarlar → Bulut senkronunu kur ya da daha küçük bir fotoğraf seç.',
+        );
+      }
+      // Önizleme için data URL bellekte tutulur; **kalıcı kayda yazılmaz**.
+      // Görsel önce Supabase Storage'a yüklenir ve `localStorage` yalnızca
+      // imzalı URL'yi saklar.
       return PickedMedia(
         source: 'data:$mime;base64,${base64Encode(bytes)}',
         mediaType: ChatMediaType.image,
         bytes: bytes,
+        requiresUpload: true,
       );
     }
 
@@ -122,6 +148,7 @@ final class MediaService {
   Future<PickedMedia?> pickVideo({
     ImageSource source = ImageSource.gallery,
     bool includeBytes = false,
+    bool allowCloudUpload = false,
   }) async {
     final XFile? file;
     try {
@@ -169,10 +196,24 @@ final class MediaService {
     if (kIsWeb) {
       final Uint8List webBytes = bytes!;
       final String mime = _mimeOf(file, 'video/mp4');
+      if (webBytes.length <= maxInlineBytes) {
+        return PickedMedia(
+          source: 'data:$mime;base64,${base64Encode(webBytes)}',
+          mediaType: ChatMediaType.video,
+          bytes: webBytes,
+        );
+      }
+      if (!allowCloudUpload) {
+        throw const MediaPickException(
+          'Web’de video göndermek için Supabase bağlantısı gerekli. '
+          'Ayarlar → Bulut senkronunu kur ya da iPhone’da dene.',
+        );
+      }
       return PickedMedia(
         source: 'data:$mime;base64,${base64Encode(webBytes)}',
         mediaType: ChatMediaType.video,
         bytes: webBytes,
+        requiresUpload: true,
       );
     }
 
@@ -189,7 +230,7 @@ final class MediaService {
     );
   }
 
-  /// Profil fotoğrafı için galeriden kare seçer.
+  /// Profil fotoğrafı için galeriden kare seçer (Web'de inline sınır uygular).
   Future<String?> pickAvatar() async {
     final PickedMedia? media = await pickImage(
       source: ImageSource.gallery,

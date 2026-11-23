@@ -4,581 +4,174 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/game_store.dart';
 import '../domain/entities/entities.dart';
-import '../domain/services/services.dart';
+import '../domain/services/couple_efficiency_engine.dart';
 import '../services/app_settings.dart';
-import 'couple_bootstrap.dart';
+import 'controllers/couple_chat_controller.dart';
+import 'controllers/couple_goals_controller.dart';
+import 'controllers/couple_sync_controller.dart';
+import 'controllers/development_controller.dart';
+import 'controllers/quest_controller.dart';
+import 'game_mutation.dart';
+import 'game_outcomes.dart';
 import 'game_state.dart';
 
-/// Gelişim rubriğinde bir puanlamanın sonucu (kutlama/özet için).
-final class RubricOutcome {
-  const RubricOutcome({
-    required this.partnerId,
-    required this.pillar,
-    required this.score,
-    required this.xpGained,
-    required this.leveledUp,
-    required this.synergyXp,
-    required this.totalToday,
-  });
+export 'game_outcomes.dart';
 
-  final String partnerId;
-  final StatKey pillar;
-  final int score;
-
-  /// Bu dokunuşla kazanılan XP (aynı gün tekrar puanlamada 0).
-  final int xpGained;
-
-  final bool leveledUp;
-
-  /// Sinerji tetiklendiyse her iki partnerin kazandığı XP.
-  final int synergyXp;
-
-  /// Partnerin bugünkü toplam rubrik puanı (0..15).
-  final int totalToday;
-
-  bool get hasSynergy => synergyXp > 0;
-
-  @override
-  String toString() =>
-      'RubricOutcome($partnerId · ${pillar.code} = $score · +$xpGained XP · '
-      'sinerji: $synergyXp)';
-}
-
-/// Plan bloğu tamamlamanın sonucu (kutlama/snackbar için).
-final class ScheduleOutcome {
-  const ScheduleOutcome({
-    required this.partnerId,
-    required this.block,
-    required this.xpGained,
-    required this.leveledUp,
-    required this.alreadyCompleted,
-  });
-
-  final String partnerId;
-  final ScheduleBlock block;
-
-  /// Bu dokunuşla kazanılan XP (gün içinde tekrar tamamlamada 0).
-  final int xpGained;
-
-  final bool leveledUp;
-
-  /// Blok bugün daha önce tamamlanmış mıydı?
-  final bool alreadyCompleted;
-
-  @override
-  String toString() =>
-      'ScheduleOutcome($partnerId · ${block.title} · +$xpGained XP)';
-}
-
-/// Oyun döngüsünün tek yöneticisi.
+/// Oyun döngüsünün **ince koordinatörü** (v6).
 ///
-/// Tüm mutasyonlar burada toplanır: onboarding, görev tamamlama, gelişim
-/// rubriği, hızlı eylemler, partner geçişi, sohbet/fotoğraf, bucket list ve
-/// haftalık bahis. Her değişiklikten sonra durum diske yazılır.
-final class GameController extends Notifier<GameState> {
+/// v5'te 962 satır olan sınıf beş modüle bölündü:
+///
+/// | Modül | Sorumluluk |
+/// |---|---|
+/// | [QuestController] | onboarding, günlük/özel görevler, XP & seviye |
+/// | [DevelopmentController] | 5 alanlı rubrik, sinerji, bonuslar, kapsüller |
+/// | [CoupleChatController] | sohbet, medya, dürtme, tepkiler, tombstone |
+/// | [CoupleGoalsController] | bucket list, haftalık plan/bahis, özel günler |
+/// | [CoupleSyncController] | cihaz kimliği, bulut birleştirme, sıfırlama |
+///
+/// Genel API geriye dönük uyum için korunur; UI kademeli olarak modül
+/// provider'larına ([questControllerProvider] …) geçebilir.
+final class GameController extends Notifier<GameState>
+    implements GameStateAccess {
+  late final QuestController quests = QuestController(this);
+  late final DevelopmentController development = DevelopmentController(this);
+  late final CoupleChatController chat = CoupleChatController(this);
+  late final CoupleGoalsController goals = CoupleGoalsController(this);
+  late final CoupleSyncController sync = CoupleSyncController(this);
+
+  int _localRevision = 0;
+  MutationOrigin _lastOrigin = MutationOrigin.local;
+
+  /// Yerel mutasyon sayacı. Uzak paketler bu sayacı artırmaz; senkron
+  /// koordinatörü "gönderilecek yeni bir şey var mı?" sorusunu buradan
+  /// deterministik olarak yanıtlar (sabit Timer penceresi yok).
+  int get localRevision => _localRevision;
+
+  /// En son mutasyonun kaynağı.
+  MutationOrigin get lastOrigin => _lastOrigin;
+
   @override
   GameState build() {
     final GameStore store = ref.watch(gameStoreProvider);
     return store.load() ?? const GameState();
   }
 
-  // ── Onboarding ───────────────────────────────────────────────────────────
-
-  /// 4 adımlı sihirbazın sonunda çağrılır.
-  ///
-  /// Profil + ilk günün kişiselleştirilmiş görevleri tek hamlede üretilir.
-  /// Çift sürümünde yalnızca **aktif partner** güncellenir.
-  void completeOnboarding(UserSetup setup) {
-    final DateTime now = DateTime.now();
-    final UserProfile profile = setup.toProfile(now: now);
-    final List<Quest> quests = QuestGenerator.dailyQuests(
-      setup: setup,
-      now: now,
-      energyMode: profile.energyMode,
-    );
-    if (state.partners.isEmpty) {
-      state = GameState(
-        setup: setup,
-        profile: profile,
-        quests: quests,
-        couple: state.couple,
-      );
-    } else {
-      state = state.copyWith(setup: setup, profile: profile, quests: quests);
-    }
-    _persist();
-  }
-
-  // ── Partner geçişi ───────────────────────────────────────────────────────
-
-  /// Üst bardaki segmentten partner değiştirir.
-  ///
-  /// Cihaz sahibi kilidi açıksa yalnızca kilitli profile geçilebilir; böylece
-  /// yanlış isimle mesaj / puan girilmesi engellenir.
-  void switchPartner(String partnerId) {
-    final AppSettings settings = ref.read(appSettingsProvider);
-    if (settings.lockToDeviceOwner && partnerId != settings.deviceRole) return;
-    final GameState next = state.activatePartner(partnerId);
+  @override
+  void commit(
+    GameState next, {
+    MutationOrigin origin = MutationOrigin.local,
+  }) {
     if (identical(next, state)) return;
-    // Telefonu devralan partner, karşı taraftan gelen mesajları görmüş olur.
-    state = next.withCouple(next.couple.markMessagesRead(readerId: partnerId));
+    _lastOrigin = origin;
+    if (origin == MutationOrigin.local) _localRevision++;
+    state = next;
     _persist();
   }
 
-  /// Yusuf ↔ Ceyda geçişi.
-  void toggleActivePartner() =>
-      switchPartner(CouplePartner.other(state.activePartnerId));
+  // ── Onboarding & görevler (QuestController) ──────────────────────────────
 
-  /// Cihaz sahibi kilidi açıksa aktif profili sahibe sabitler.
-  void enforceDeviceOwner(AppSettings settings) {
-    if (!settings.lockToDeviceOwner || !state.isCoupleEdition) return;
-    if (!CouplePartner.isValid(settings.deviceRole)) return;
-    if (state.activePartnerId == settings.deviceRole) return;
-    state = state.activatePartner(settings.deviceRole);
-    _persist();
-  }
+  void completeOnboarding(UserSetup setup) => quests.completeOnboarding(setup);
 
-  /// Üst bardaki canlı durum seçimi.
-  void setLiveStatus(LiveStatus status, {String? partnerId}) {
-    final String id = partnerId ?? state.activePartnerId;
-    if (state.couple.liveStatusOf(id) == status) return;
-    state = state.withCouple(state.couple.withLiveStatus(id, status));
-    _persist();
-  }
+  XpAward? completeQuest(String questId) => quests.completeQuest(questId);
 
-  // ── Görev döngüsü ────────────────────────────────────────────────────────
+  int xpForQuest(UserProfile profile, Quest quest) =>
+      quests.xpForQuest(profile, quest);
 
-  /// Görevi tamamlar; kutlama/snackbar için [XpAward] döner.
-  ///
-  /// XP = görevin taban XP'si × (1 + arketip bonusu). Bonus UI'da ayrıca
-  /// gösterilir, böylece "+%15" bilgisi şeffaf kalır.
-  XpAward? completeQuest(String questId) {
-    final UserProfile? profile = state.profile;
-    if (profile == null) return null;
-    final int index = state.quests.indexWhere(
-      (Quest quest) => quest.id == questId,
-    );
-    if (index < 0) return null;
-    final Quest quest = state.quests[index];
-    if (quest.isCompleted) return null;
+  bool addQuest(Quest quest) => quests.addQuest(quest);
 
-    final DateTime now = DateTime.now();
-    final int awarded = xpForQuest(profile, quest);
-    final XpAward result = profile.completeQuest(
-      stat: quest.stat,
-      xp: awarded,
-      at: now,
-    );
-    final List<Quest> quests = <Quest>[...state.quests];
-    quests[index] = quest.complete(at: now);
+  void removeQuest(String questId) => quests.removeQuest(questId);
 
-    state = state
-        .copyWith(profile: result.profile, quests: quests)
-        .withCouple(
-          state.couple.recordQuestCompletion(
-            partnerId: state.activePartnerId,
-            day: now,
-          ),
-        );
-    _persist();
-    return result;
-  }
+  void refreshQuests() => quests.refreshQuests();
 
-  /// Bu görev tamamlandığında gerçekten verilecek XP.
-  int xpForQuest(UserProfile profile, Quest quest) => XpEngine.applyBonus(
-    quest.effectiveBaseXp,
-    profile.archetype.bonusFor(quest.stat),
-  );
+  void setEnergyMode(EnergyMode mode) => quests.setEnergyMode(mode);
 
-  /// Modalden eklenen özel görev.
-  void addQuest(Quest quest) {
-    state = state.copyWith(quests: <Quest>[...state.quests, quest]);
-    _persist();
-  }
+  // ── Gelişim & bonuslar (DevelopmentController) ───────────────────────────
 
-  void removeQuest(String questId) {
-    state = state.copyWith(
-      quests: state.quests
-          .where((Quest quest) => quest.id != questId)
-          .toList(growable: false),
-    );
-    _persist();
-  }
-
-  /// Günün görevlerini yeniden üretir; kullanıcının kendi ekledikleri korunur.
-  void refreshQuests() {
-    final UserSetup? setup = state.setup;
-    final UserProfile? profile = state.profile;
-    if (setup == null || profile == null) return;
-    final DateTime now = DateTime.now();
-    final List<Quest> daily = QuestGenerator.dailyQuests(
-      setup: setup,
-      now: now,
-      energyMode: profile.energyMode,
-    );
-    state = state.copyWith(quests: daily);
-    _persist();
-  }
-
-  // ── Enerji modu ──────────────────────────────────────────────────────────
-
-  void setEnergyMode(EnergyMode mode) {
-    final UserProfile? profile = state.profile;
-    if (profile == null || profile.energyMode == mode) return;
-    state = state.copyWith(
-      profile: profile.withEnergyMode(mode),
-      quests: <Quest>[
-        for (final Quest quest in state.quests) quest.applyEnergyMode(mode),
-      ],
-    );
-    _persist();
-  }
-
-  // ── Gelişim rubriği (1-2-3) ──────────────────────────────────────────────
-
-  /// Bir yaşam alanına 1-2-3 puanı verir.
-  ///
-  /// Aynı gün ilk puanlamada XP kazanılır; düzeltmeler XP üretmez
-  /// (puan avcılığını engeller). İki taraf da aynı alanda 2+ puana ulaşırsa
-  /// sinerji bonusu **her iki** partnere verilir.
   RubricOutcome ratePillar({
     required StatKey pillar,
     required int score,
     String? partnerId,
-  }) {
-    final String id = partnerId ?? state.activePartnerId;
-    final DateTime now = DateTime.now();
-    final int previous = state.couple.rubricScore(id, pillar, now);
-    final CoupleState nextCouple = state.couple.ratePillar(
-      partnerId: id,
-      pillar: pillar,
-      score: score,
-      day: now,
-    );
+  }) => development.ratePillar(
+    pillar: pillar,
+    score: score,
+    partnerId: partnerId,
+  );
 
-    final int gained = previous > 0 || score <= 0
-        ? 0
-        : DevelopmentRubric.xpFor(score);
-    bool leveledUp = false;
-    GameState next = state;
+  XpAward? quickAction(QuickAction action, {String? partnerId}) =>
+      development.quickAction(action, partnerId: partnerId);
 
-    if (gained > 0) {
-      final PartnerData data = state.partnerData(id) ?? state.activePartner;
-      final UserProfile? profile = data.profile;
-      if (profile != null) {
-        final XpAward award = profile.completeQuest(
-          stat: pillar,
-          xp: gained,
-          at: now,
-        );
-        leveledUp = award.leveledUp;
-        next = next.withPartner(id, data.copyWith(profile: award.profile));
-      }
-    }
-
-    next = next.withCouple(nextCouple);
-
-    int synergyXp = 0;
-    if (score >= 2 &&
-        CoupleEfficiencyEngine.shouldAwardSynergy(next.couple, pillar, now)) {
-      next = next
-          .withCouple(next.couple.markSynergy(pillar: pillar, day: now))
-          .grantBoth(
-            stat: pillar,
-            xp: CoupleEfficiencyEngine.synergyXp,
-            at: now,
-          );
-      synergyXp = CoupleEfficiencyEngine.synergyXp;
-    }
-
-    state = next;
-    _persist();
-    return RubricOutcome(
-      partnerId: id,
-      pillar: pillar,
-      score: score,
-      xpGained: gained,
-      leveledUp: leveledUp,
-      synergyXp: synergyXp,
-      totalToday: next.couple.rubricTotalOn(id, now),
-    );
-  }
-
-  // ── Hızlı bonus eylemler ─────────────────────────────────────────────────
-
-  /// Gelişim sekmesindeki tek dokunuşluk eylem.
-  XpAward? quickAction(QuickAction action, {String? partnerId}) {
-    final String id = partnerId ?? state.activePartnerId;
-    final DateTime now = DateTime.now();
-    final BonusActionLog log = BonusActionLog.fromQuickAction(
-      action: action,
-      partnerId: id,
-      at: now,
-    );
-    return _awardPartner(
-      partnerId: id,
-      stat: action.stat,
-      xp: action.points,
-      at: now,
-      then: (GameState current) =>
-          current.withCouple(current.couple.addBonusAction(log)),
-    );
-  }
-
-  /// Kullanıcının kendi yazdığı bonus eylem.
   XpAward? addCustomBonus({
     required String title,
     required int points,
     required StatKey stat,
     String? partnerId,
-  }) {
-    final String trimmed = title.trim();
-    if (trimmed.isEmpty || points <= 0) return null;
-    final String id = partnerId ?? state.activePartnerId;
-    final DateTime now = DateTime.now();
-    final BonusActionLog log = BonusActionLog.custom(
-      title: trimmed,
-      points: points,
-      stat: stat,
-      partnerId: id,
-      at: now,
-    );
-    return _awardPartner(
-      partnerId: id,
-      stat: stat,
-      xp: points,
-      at: now,
-      then: (GameState current) =>
-          current.withCouple(current.couple.addBonusAction(log)),
-    );
-  }
+  }) => development.addCustomBonus(
+    title: title,
+    points: points,
+    stat: stat,
+    partnerId: partnerId,
+  );
 
-  // ── Haftalık plan (senkron program) ──────────────────────────────────────
+  bool openRewardCapsule(String capsuleId) =>
+      development.openRewardCapsule(capsuleId);
 
-  /// Plan bloğunu **bugün için** tamamlar.
-  ///
-  /// Partnerin bloğun kategorisine karşılık gelen statına +25 XP verilir ve
-  /// sohbete kanıt rozeti düşülür. Aynı blok aynı gün ikinci kez
-  /// tamamlanırsa XP verilmez (puan avcılığını engeller).
-  ScheduleOutcome? completeScheduleBlock(String blockId, {DateTime? day}) {
-    final ScheduleBlock? block = state.couple.blockById(blockId);
-    if (block == null) return null;
-
-    final DateTime now = day ?? DateTime.now();
-    final bool alreadyCompleted = block.isCompletedOn(now);
-    if (alreadyCompleted) {
-      final CoupleState reset = state.couple.completeScheduleBlock(
-        blockId,
-        now,
-      );
-      if (!identical(reset, state.couple)) {
-        state = state.withCouple(reset);
-        _persist();
-      }
-      return ScheduleOutcome(
-        partnerId: block.partnerId,
-        block: block,
-        xpGained: 0,
-        leveledUp: false,
-        alreadyCompleted: true,
-      );
-    }
-
-    final ChatMessage badge = ChatMessage(
-      id: _newMessageId('plan'),
-      senderId: block.partnerId,
-      createdAt: now,
-      text: '${block.title} planını tamamladım! 💪',
-      questBadgeTitle: block.title,
-      earnedPoints: SchedulePlanner.completionXp,
-      kind: ChatMessageKind.questShare,
-    );
-
-    final XpAward? award = _awardPartner(
-      partnerId: block.partnerId,
-      stat: block.category.stat,
-      xp: SchedulePlanner.completionXp,
-      at: now,
-      then: (GameState current) => current.withCouple(
-        current.couple.completeScheduleBlock(blockId, now).addMessage(badge),
-      ),
-    );
-    if (award == null) return null;
-
-    return ScheduleOutcome(
-      partnerId: block.partnerId,
-      block: block,
-      xpGained: award.xpGained,
-      leveledUp: award.leveledUp,
-      alreadyCompleted: false,
-    );
-  }
-
-  /// Yeni plan blokları ekler (💑 "İkimiz Birden" için iki blok birden).
-  int addScheduleBlocks(Iterable<ScheduleBlock> blocks) {
-    final List<ScheduleBlock> valid = blocks
-        .where(
-          (ScheduleBlock block) =>
-              block.title.trim().isNotEmpty &&
-              block.endMinutes > block.startMinutes,
-        )
-        .toList(growable: false);
-    if (valid.isEmpty) return 0;
-    state = state.withCouple(state.couple.addScheduleBlocks(valid));
-    _persist();
-    return valid.length;
-  }
-
-  void removeScheduleBlock(String blockId) {
-    final CoupleState next = state.couple.removeScheduleBlock(blockId);
-    if (identical(next, state.couple)) return;
-    state = state.withCouple(next);
-    _persist();
-  }
-
-  /// Şu anki (yoksa sıradaki) plan bloğunu sohbete görsel kanıt olarak atar.
-  ///
-  /// Kanıt kartı, bloğun kategorisine uygun gradient görsel + saat rozetiyle
-  /// gönderilir; böylece albümde "Plan & Görev Kanıtları" filtresinde görünür.
-  ChatMessage? sendScheduleProof({String? partnerId, String? blockId}) {
-    final String id = partnerId ?? state.activePartnerId;
-    final DateTime now = DateTime.now();
-    final ScheduleBlock? block = blockId != null
-        ? state.couple.blockById(blockId)
-        : state.couple.currentBlockFor(id, now) ??
-              state.couple.nextBlockFor(id, now);
-    if (block == null) return null;
-
-    final bool live = block.isActiveAt(now);
-    final ChatMessage message = ChatMessage(
-      id: _newMessageId('proof'),
-      senderId: block.partnerId,
-      createdAt: now,
-      photoDataOrUrl: block.category.presetSource,
-      photoCaption:
-          '${block.weekdayShortLabel} ${block.timeRangeLabel} • '
-          '${block.category.emoji} ${block.category.shortLabel} Kanıtı',
-      questBadgeTitle: block.title,
-      text: live
-          ? '${block.category.emoji} ${block.category.shortLabel} · '
-                'şu an kanıt paylaşıldı'
-          : 'Sıradaki plan · ${block.weekdayShortLabel} '
-                '${block.timeRangeLabel}',
-      kind: ChatMessageKind.proof,
-    );
-    return _appendMessage(message);
-  }
-
-  // ── Ödül kapsülleri ──────────────────────────────────────────────────────
-
-  /// Eşiği dolmuş kapsülü açar. Kilitliyse `false` döner.
-  bool openRewardCapsule(String capsuleId) {
-    final CoupleState next = state.couple.openCapsule(capsuleId);
-    if (identical(next, state.couple)) return false;
-    state = state.withCouple(next);
-    _persist();
-    return true;
-  }
-
-  /// Yusuf & Ceyda'nın kendi ödül kapsülünü ekler.
   RewardCapsule? addRewardCapsule({
     required String title,
     required int requiredPoints,
     String emoji = '🎁',
     String description = '',
     String rewardMessage = '',
-  }) {
-    final String trimmed = title.trim();
-    if (trimmed.isEmpty || requiredPoints <= 0) return null;
-    final String cleanEmoji = emoji.trim().isEmpty ? '🎁' : emoji.trim();
-    final RewardCapsule capsule = RewardCapsule(
-      id: 'capsule-${DateTime.now().microsecondsSinceEpoch}',
-      title: trimmed,
-      emoji: cleanEmoji,
-      description: description.trim(),
-      requiredPoints: requiredPoints,
-      rewardMessage: rewardMessage.trim().isEmpty
-          ? trimmed
-          : rewardMessage.trim(),
-      isCustom: true,
-    );
-    state = state.withCouple(state.couple.addCapsule(capsule));
-    _persist();
-    return capsule;
-  }
+  }) => development.addRewardCapsule(
+    title: title,
+    requiredPoints: requiredPoints,
+    emoji: emoji,
+    description: description,
+    rewardMessage: rewardMessage,
+  );
 
-  // ── Bucket list (ortak hedefler) ─────────────────────────────────────────
+  // ── Partner & uzak durum (CoupleSyncController) ──────────────────────────
 
-  /// Ortak hedefi açar/kapatır. Tamamlanınca iki tarafa Co-Op XP gelir.
-  bool toggleBucketGoal(String goalId) {
-    BucketGoal? target;
-    for (final BucketGoal goal in state.couple.bucketGoals) {
-      if (goal.id == goalId) target = goal;
-    }
-    if (target == null) return false;
+  void switchPartner(String partnerId) => sync.switchPartner(partnerId);
 
-    final DateTime now = DateTime.now();
-    final bool completing = !target.isDone;
-    GameState next = state.withCouple(state.couple.toggleBucketGoal(goalId));
-    if (completing) {
-      next = next.grantBoth(
-        stat: StatKey.willpower,
-        xp: target.rewardPoints,
-        at: now,
-      );
-    }
-    state = next;
-    _persist();
-    return completing;
-  }
+  void toggleActivePartner() => sync.toggleActivePartner();
 
-  // ── Sohbet & anı albümü ──────────────────────────────────────────────────
+  void enforceDeviceOwner(AppSettings settings) => sync.enforceDeviceOwner();
 
-  String _newMessageId(String prefix) =>
-      '$prefix-${DateTime.now().microsecondsSinceEpoch}';
+  void applyRemoteState(GameState remote, {String? deviceRole}) =>
+      sync.applyRemoteState(remote, deviceRole: deviceRole);
 
-  ChatMessage _appendMessage(ChatMessage message, {bool persist = true}) {
-    state = state.withCouple(state.couple.addMessage(message));
-    if (persist) _persist();
-    return message;
-  }
+  Future<void> resetJourney() => sync.resetJourney();
 
-  /// Aktif partner adına metin mesajı gönderir.
-  ///
-  /// [replyTo] verilirse balonun içinde alıntı şeridi gösterilir.
+  Future<void> restartCoupleJourney() => sync.restartCoupleJourney();
+
+  Future<void> importState(GameState state) => sync.importState(state);
+
+  // ── Sohbet & anı albümü (CoupleChatController) ───────────────────────────
+
+  bool addLoveNote(String note) => goals.addLoveNote(note);
+
+  bool deleteLoveNote(String note) => goals.deleteLoveNote(note);
+
+  void setBirthdayMessage(String message) => goals.setBirthdayMessage(message);
+
+  void cycleLoveNote() => chat.cycleLoveNote();
+
   ChatMessage? sendMessage(
     String text, {
     ChatMessageKind kind = ChatMessageKind.text,
     ChatMessage? replyTo,
-  }) {
-    final String trimmed = text.trim();
-    if (trimmed.isEmpty) return null;
-    return _appendMessage(
-      ChatMessage(
-        id: _newMessageId('msg'),
-        senderId: state.activePartnerId,
-        createdAt: DateTime.now(),
-        text: trimmed,
-        kind: kind,
-        replyToMessageId: replyTo?.id,
-        replyPreviewText: replyTo?.preview,
-      ),
-    );
-  }
+  }) => chat.sendMessage(text, kind: kind, replyTo: replyTo);
 
-  /// Anı albümüne fotoğraf ekler (`preset:…`, `data:image/…` veya `https://`).
   ChatMessage? sendPhoto({
     required String photoDataOrUrl,
     String caption = '',
     ChatMessage? replyTo,
-  }) => sendMedia(
-    mediaPathOrUrl: photoDataOrUrl,
-    mediaType: ChatMediaType.image,
+  }) => chat.sendPhoto(
+    photoDataOrUrl: photoDataOrUrl,
     caption: caption,
     replyTo: replyTo,
   );
 
-  /// Cihazdan seçilen fotoğraf / videoyu sohbete ve anı albümüne ekler.
   ChatMessage? sendMedia({
     required String mediaPathOrUrl,
     required ChatMediaType mediaType,
@@ -586,316 +179,73 @@ final class GameController extends Notifier<GameState> {
     String? thumbnailPath,
     int durationSeconds = 0,
     ChatMessage? replyTo,
-  }) {
-    final String source = mediaPathOrUrl.trim();
-    if (source.isEmpty || mediaType == ChatMediaType.none) return null;
-    final String cleanCaption = caption.trim();
-    return _appendMessage(
-      ChatMessage(
-        id: _newMessageId(mediaType == ChatMediaType.video ? 'video' : 'photo'),
-        senderId: state.activePartnerId,
-        createdAt: DateTime.now(),
-        photoDataOrUrl: source,
-        photoCaption: cleanCaption.isEmpty ? null : cleanCaption,
-        kind: ChatMessageKind.photo,
-        mediaType: mediaType,
-        thumbnailPath: thumbnailPath,
-        durationSeconds: durationSeconds,
-        replyToMessageId: replyTo?.id,
-        replyPreviewText: replyTo?.preview,
-      ),
-    );
-  }
+  }) => chat.sendMedia(
+    mediaPathOrUrl: mediaPathOrUrl,
+    mediaType: mediaType,
+    caption: caption,
+    thumbnailPath: thumbnailPath,
+    durationSeconds: durationSeconds,
+    replyTo: replyTo,
+  );
 
-  /// Sohbetten bir mesajı siler (yanıt şeritleri güvenli kalır).
-  void deleteMessage(String messageId) {
-    final CoupleState next = state.couple.deleteMessage(messageId);
-    if (identical(next, state.couple)) return;
-    state = state.withCouple(next);
-    _persist();
-  }
+  ChatMessage? sendScheduleProof({String? partnerId, String? blockId}) =>
+      chat.sendScheduleProof(partnerId: partnerId, blockId: blockId);
 
-  /// Aktif partner sohbeti okudu → karşı tarafın mesajlarına ✓✓.
-  void markConversationRead({String? readerId}) {
-    final String reader = readerId ?? state.activePartnerId;
-    final CoupleState next = state.couple.markMessagesRead(readerId: reader);
-    if (identical(next, state.couple)) return;
-    state = state.withCouple(next);
-    _persist();
-  }
+  bool deleteMessage(
+    String messageId, {
+    MutationOrigin origin = MutationOrigin.local,
+  }) => chat.deleteMessage(messageId, origin: origin);
 
-  /// Supabase Realtime'dan gelen mesajı yerel duruma işler (id ile dedupe).
-  /// Yeni mesaj eklendiyse `true` döner.
-  bool receiveRemoteMessage(ChatMessage message) {
-    if (state.couple.messageById(message.id) != null) return false;
-    state = state.withCouple(state.couple.addMessage(message));
-    _persist();
-    return true;
-  }
+  bool editMessage(String messageId, String text) =>
+      chat.editMessage(messageId, text);
 
-  /// Geçmişten gelen mesajları yereldeki mesajlarla birleştirir.
-  ///
-  /// Hiçbir yerel mesaj silinmez; yalnızca yeni id'ler eklenir ve liste
-  /// kronolojik sıraya girer. Eklenen mesaj sayısını döner.
-  int mergeRemoteMessages(List<ChatMessage> incoming) {
-    if (incoming.isEmpty) return 0;
-    final List<ChatMessage> merged = _mergeMessages(
-      state.couple.messages,
-      incoming,
-    );
-    if (merged.length == state.couple.messages.length) return 0;
-    final int added = merged.length - state.couple.messages.length;
-    state = state.withCouple(state.couple.copyWith(messages: merged));
-    _persist();
-    return added;
-  }
+  bool reactToMessage(String messageId, String emoji) =>
+      chat.reactToMessage(messageId, emoji);
 
-  /// Karşı telefondan gelen tam durumu **tahribatsız** uygular.
-  ///
-  /// Mesajlar, kapsüller ve plan blokları birleştirilir; rubrik/puan gibi
-  /// skor alanları karşı cihazın daha güncel değerlerini alır.
-  void applyRemoteState(GameState remote) {
-    final CoupleState local = state.couple;
-    final CoupleState merged = remote.couple.copyWith(
-      messages: _mergeMessages(local.messages, remote.couple.messages),
-      rewardCapsules: _mergeCapsules(
-        local.rewardCapsules,
-        remote.couple.rewardCapsules,
-      ),
-      scheduleBlocks: _mergeSchedules(
-        local.scheduleBlocks,
-        remote.couple.scheduleBlocks,
-      ),
-      bucketGoals: remote.couple.bucketGoals.isEmpty
-          ? local.bucketGoals
-          : remote.couple.bucketGoals,
-      customLoveNotes: <String>{
-        ...local.customLoveNotes,
-        ...remote.couple.customLoveNotes,
-      }.toList(growable: false),
-    );
-    state = remote.withCouple(merged);
-    _persist();
-  }
+  void markConversationRead({String? readerId}) =>
+      chat.markConversationRead(readerId: readerId);
 
-  static List<ChatMessage> _mergeMessages(
-    List<ChatMessage> local,
-    List<ChatMessage> remote,
-  ) {
-    final Map<String, ChatMessage> byId = <String, ChatMessage>{
-      for (final ChatMessage message in local) message.id: message,
-    };
-    for (final ChatMessage message in remote) {
-      byId.putIfAbsent(message.id, () => message);
-    }
-    final List<ChatMessage> merged = byId.values.toList(growable: false);
-    merged.sort((ChatMessage a, ChatMessage b) {
-      final int byTime = a.createdAt.compareTo(b.createdAt);
-      return byTime != 0 ? byTime : a.id.compareTo(b.id);
-    });
-    return merged;
-  }
+  bool receiveRemoteMessage(ChatMessage message) =>
+      chat.receiveRemoteMessage(message);
 
-  static List<RewardCapsule> _mergeCapsules(
-    List<RewardCapsule> local,
-    List<RewardCapsule> remote,
-  ) {
-    final Map<String, RewardCapsule> merged = <String, RewardCapsule>{
-      for (final RewardCapsule capsule in remote) capsule.id: capsule,
-    };
-    for (final RewardCapsule capsule in local) {
-      final RewardCapsule? other = merged[capsule.id];
-      if (other == null) {
-        merged[capsule.id] = capsule;
-      } else if (capsule.isOpened && !other.isOpened) {
-        merged[capsule.id] = other.copyWith(
-          isOpened: true,
-          openedAt: capsule.openedAt,
-        );
-      }
-    }
-    return merged.values.toList(growable: false);
-  }
+  bool mergeRemoteMessageUpdate(ChatMessage message) =>
+      chat.mergeRemoteMessageUpdate(message);
 
-  static List<ScheduleBlock> _mergeSchedules(
-    List<ScheduleBlock> local,
-    List<ScheduleBlock> remote,
-  ) {
-    final Map<String, ScheduleBlock> merged = <String, ScheduleBlock>{
-      for (final ScheduleBlock block in remote) block.id: block,
-    };
-    for (final ScheduleBlock block in local) {
-      merged.putIfAbsent(block.id, () => block);
-    }
-    return merged.values.toList(growable: false);
-  }
+  int mergeRemoteMessages(List<ChatMessage> incoming) =>
+      chat.mergeRemoteMessages(incoming);
 
-  /// Mesajı beğeni durumunu değiştirmeden yerinde günceller (okundu vb.).
-  void patchMessage(ChatMessage message) {
-    final ChatMessage? current = state.couple.messageById(message.id);
-    if (current == null || current == message) return;
-    state = state.withCouple(state.couple.upsertMessage(message));
-    _persist();
-  }
+  void patchMessage(ChatMessage message) => chat.patchMessage(message);
 
-  /// Tamamlanan görevi sohbette paylaşır (rozetli balon).
+  void likeMessage(String messageId) => chat.likeMessage(messageId);
+
+  ChatMessage? nudgePartner() => chat.nudgePartner();
+
+  ChatMessage? sendLoveNote() => chat.sendLoveNote();
+
+  ChatMessage? sendLoveMessage(String text) => chat.sendLoveMessage(text);
+
   ChatMessage? shareQuest(Quest quest, {int earnedPoints = 0}) =>
-      _appendMessage(
-        ChatMessage(
-          id: _newMessageId('quest'),
-          senderId: state.activePartnerId,
-          createdAt: DateTime.now(),
-          text: '${quest.effectiveTitle} görevini tamamladım!',
-          questBadgeTitle: quest.effectiveTitle,
-          earnedPoints: earnedPoints,
-          kind: ChatMessageKind.questShare,
-        ),
-      );
+      chat.shareQuest(quest, earnedPoints: earnedPoints);
 
-  /// Fotoğrafı beğenir/beğeniyi kaldırır (galeri kalbi).
-  void likeMessage(String messageId) {
-    state = state.withCouple(state.couple.toggleMessageLike(messageId));
-    _persist();
-  }
+  // ── Hedefler & plan (CoupleGoalsController) ──────────────────────────────
 
-  /// Partnerine dürtme gönderir ve küçük bir disiplin XP'si kazanır.
-  ChatMessage? nudgePartner() {
-    final String me = state.activePartnerId;
-    final String target = CouplePartner.other(me);
-    final ChatMessage message = _appendMessage(
-      ChatMessage(
-        id: _newMessageId('nudge'),
-        senderId: me,
-        createdAt: DateTime.now(),
-        text:
-            '💫 ${CouplePartner.displayName(me)} → '
-            '${CouplePartner.displayName(target)}: hadi bir puan daha!',
-        kind: ChatMessageKind.nudge,
-      ),
-      persist: false,
-    );
-    _awardPartner(
-      partnerId: me,
-      stat: StatKey.willpower,
-      xp: CoupleState.nudgeXp,
-      at: DateTime.now(),
-    );
-    return message;
-  }
+  void setLiveStatus(LiveStatus status, {String? partnerId}) =>
+      goals.setLiveStatus(status, partnerId: partnerId);
 
-  /// Üreticideki aşk notunu gönderip bir sonrakine geçer.
-  ChatMessage? sendLoveNote() {
-    final String note = state.couple.currentLoveNote;
-    if (note.isEmpty) return null;
-    final ChatMessage message = _appendMessage(
-      ChatMessage(
-        id: _newMessageId('love'),
-        senderId: state.activePartnerId,
-        createdAt: DateTime.now(),
-        text: note,
-        kind: ChatMessageKind.loveNote,
-      ),
-      persist: false,
-    );
-    state = state.withCouple(state.couple.cycleLoveNote());
-    _persist();
-    return message;
-  }
+  bool toggleBucketGoal(String goalId) => goals.toggleBucketGoal(goalId);
 
-  /// Duygu kapsüllerinden seçilen metni aşk notu olarak sohbete gönderir.
-  ///
-  /// [sendLoveNote] üreticiyi ilerletir; bu metot ise kullanıcının seçtiği
-  /// metni olduğu gibi gönderir.
-  ChatMessage? sendLoveMessage(String text) {
-    final String note = text.trim();
-    if (note.isEmpty) return null;
-    final ChatMessage message = _appendMessage(
-      ChatMessage(
-        id: _newMessageId('love'),
-        senderId: state.activePartnerId,
-        createdAt: DateTime.now(),
-        text: note,
-        kind: ChatMessageKind.loveNote,
-      ),
-      persist: false,
-    );
-    _persist();
-    return message;
-  }
+  ScheduleOutcome? completeScheduleBlock(String blockId, {DateTime? day}) =>
+      goals.completeScheduleBlock(blockId, day: day);
 
-  /// Üretici imlecini kaydırmadan sonraki notu gösterir.
-  void cycleLoveNote() {
-    state = state.withCouple(state.couple.cycleLoveNote());
-    _persist();
-  }
+  int addScheduleBlocks(Iterable<ScheduleBlock> blocks) =>
+      goals.addScheduleBlocks(blocks);
 
-  /// Doğum günü için kişisel not ekler.
-  void addLoveNote(String note) {
-    final String trimmed = note.trim();
-    if (trimmed.isEmpty) return;
-    state = state.withCouple(state.couple.addLoveNote(trimmed));
-    _persist();
-  }
+  void removeScheduleBlock(String blockId) =>
+      goals.removeScheduleBlock(blockId);
 
-  /// Yusuf'un doğum günü mektubunu kişiselleştirir.
-  void setBirthdayMessage(String message) {
-    final CoupleState next = state.couple.withBirthdayMessage(message);
-    if (identical(next, state.couple)) return;
-    state = state.withCouple(next);
-    _persist();
-  }
-
-  // ── Haftalık bahis ───────────────────────────────────────────────────────
-
-  void setStake(DuelStake stake) {
-    if (state.couple.stake == stake) return;
-    state = state.withCouple(state.couple.withStake(stake));
-    _persist();
-  }
-
-  // ── Sıfırlama ────────────────────────────────────────────────────────────
-
-  /// "Hedeflerimi sıfırla" — onboarding'e geri döner ve tüm ilerlemeyi siler.
-  Future<void> resetJourney() async {
-    state = const GameState();
-    await ref.read(gameStoreProvider).clear();
-  }
-
-  /// Çift sürümünü tohum verisiyle yeniden başlatır (demo/hediye modu).
-  Future<void> restartCoupleJourney() async {
-    final GameState seeded = CoupleBootstrap.initialState();
-    state = seeded;
-    await ref.read(gameStoreProvider).save(seeded);
-  }
+  void setStake(DuelStake stake) => goals.setStake(stake);
 
   // ── Yardımcılar ──────────────────────────────────────────────────────────
-
-  /// Partnerin profilini XP ile ödüller ve isteğe bağlı ek mutasyon uygular.
-  XpAward? _awardPartner({
-    required String partnerId,
-    required StatKey stat,
-    required int xp,
-    required DateTime at,
-    GameState Function(GameState current)? then,
-  }) {
-    final PartnerData data =
-        state.partnerData(partnerId) ??
-        (partnerId == state.activePartnerId
-            ? state.activePartner
-            : const PartnerData());
-    final UserProfile? profile = data.profile;
-    if (profile == null || xp <= 0) return null;
-
-    final XpAward award = profile.completeQuest(stat: stat, xp: xp, at: at);
-    GameState next = state.withPartner(
-      partnerId,
-      data.copyWith(profile: award.profile),
-    );
-    if (then != null) next = then(next);
-    state = next;
-    _persist();
-    return award;
-  }
 
   void _persist() {
     final GameStore store = ref.read(gameStoreProvider);
@@ -917,24 +267,54 @@ final class GameController extends Notifier<GameState> {
 final NotifierProvider<GameController, GameState> gameProvider =
     NotifierProvider<GameController, GameState>(GameController.new);
 
+// ── Modül provider'ları (granular erişim) ──────────────────────────────────
+
+final Provider<QuestController> questControllerProvider =
+    Provider<QuestController>((Ref ref) => ref.read(gameProvider.notifier).quests);
+
+final Provider<DevelopmentController> developmentControllerProvider =
+    Provider<DevelopmentController>(
+      (Ref ref) => ref.read(gameProvider.notifier).development,
+    );
+
+final Provider<CoupleChatController> coupleChatControllerProvider =
+    Provider<CoupleChatController>(
+      (Ref ref) => ref.read(gameProvider.notifier).chat,
+    );
+
+final Provider<CoupleGoalsController> coupleGoalsControllerProvider =
+    Provider<CoupleGoalsController>(
+      (Ref ref) => ref.read(gameProvider.notifier).goals,
+    );
+
+final Provider<CoupleSyncController> coupleSyncControllerProvider =
+    Provider<CoupleSyncController>(
+      (Ref ref) => ref.read(gameProvider.notifier).sync,
+    );
+
+// ── Granular seçiciler (gereksiz rebuild'i önler) ─────────────────────────
+
 /// Kısayol: onboarding tamamlandı mı?
 final Provider<bool> isOnboardedProvider = Provider<bool>(
-  (Ref ref) => ref.watch(gameProvider).isOnboarded,
+  (Ref ref) => ref.watch(
+    gameProvider.select((GameState state) => state.isOnboarded),
+  ),
 );
 
 /// Kısayol: aktif profil (onboarding öncesi `null`).
 final Provider<UserProfile?> profileProvider = Provider<UserProfile?>(
-  (Ref ref) => ref.watch(gameProvider).profile,
+  (Ref ref) => ref.watch(gameProvider.select((GameState state) => state.profile)),
 );
 
 /// Aktif partnerin tam verisi (görevler dahil).
 final Provider<PartnerData> activePartnerProvider = Provider<PartnerData>(
-  (Ref ref) => ref.watch(gameProvider).activePartner,
+  (Ref ref) =>
+      ref.watch(gameProvider.select((GameState state) => state.activePartner)),
 );
 
 /// Ekranda olmayan partnerin profili (üst bar / karşılaştırma kartları).
-final Provider<UserProfile?> partnerProfileProvider = Provider<UserProfile?>((
-  Ref ref,
+final Provider<UserProfile?> partnerProfileProvider = Provider<UserProfile?>(
+  (Ref ref,
 ) {
   final GameState state = ref.watch(gameProvider);
   return state.partnerData(CouplePartner.other(state.activePartnerId))?.profile;
@@ -942,8 +322,73 @@ final Provider<UserProfile?> partnerProfileProvider = Provider<UserProfile?>((
 
 /// Ortak çift durumu (sohbet, rubrik, bucket list).
 final Provider<CoupleState> coupleStateProvider = Provider<CoupleState>(
-  (Ref ref) => ref.watch(gameProvider).couple,
+  (Ref ref) =>
+      ref.watch(gameProvider.select((GameState state) => state.couple)),
 );
+
+/// Yalnızca görev listesi — görev ekranı sohbet değişiminde rebuild olmaz.
+final Provider<List<Quest>> questsProvider = Provider<List<Quest>>(
+  (Ref ref) => ref.watch(gameProvider.select((GameState state) => state.quests)),
+);
+
+/// Yalnızca sohbet mesajları.
+final Provider<List<ChatMessage>> messagesProvider =
+    Provider<List<ChatMessage>>(
+      (Ref ref) => ref.watch(
+        gameProvider.select((GameState state) => state.couple.messages),
+      ),
+    );
+
+/// Dashboard'un gördüğü dar durum kesiti.
+///
+/// v6: ekranlar artık tüm `GameState`'i dinlemek zorunda değil. Sohbet
+/// değiştiğinde dashboard rebuild olmaz; yalnızca profil/görev alanları
+/// değiştiğinde yeniden çizilir.
+final class DashboardSnapshot {
+  const DashboardSnapshot({
+    required this.profile,
+    required this.setup,
+    required this.isCoupleEdition,
+    required this.quests,
+  });
+
+  final UserProfile? profile;
+  final UserSetup? setup;
+  final bool isCoupleEdition;
+  final List<Quest> quests;
+
+  int get completedCount =>
+      quests.where((Quest quest) => quest.isCompleted).length;
+
+  List<Quest> get openQuests =>
+      quests.where((Quest quest) => quest.isOpen).toList(growable: false);
+}
+
+final Provider<DashboardSnapshot> dashboardSnapshotProvider =
+    Provider<DashboardSnapshot>((Ref ref) {
+      final ({
+        UserProfile? profile,
+        UserSetup? setup,
+        bool isCouple,
+        List<Quest> quests,
+      })
+      data = ref.watch(
+        gameProvider.select(
+          (GameState state) => (
+            profile: state.profile,
+            setup: state.setup,
+            isCouple: state.isCoupleEdition,
+            quests: state.quests,
+          ),
+        ),
+      );
+      return DashboardSnapshot(
+        profile: data.profile,
+        setup: data.setup,
+        isCoupleEdition: data.isCouple,
+        quests: data.quests,
+      );
+    });
 
 /// Haftalık verimlilik düellosu — durum değiştikçe yeniden hesaplanır.
 final Provider<CoupleDuelResult> duelProvider = Provider<CoupleDuelResult>((
@@ -958,5 +403,9 @@ final Provider<CoupleDuelResult> duelProvider = Provider<CoupleDuelResult>((
 
 /// Sıradaki aşk notu (doğum günü üreticisi).
 final Provider<String> loveNoteProvider = Provider<String>(
-  (Ref ref) => ref.watch(gameProvider).couple.currentLoveNote,
+  (Ref ref) => ref.watch(
+    gameProvider.select(
+      (GameState state) => state.couple.currentLoveNote,
+    ),
+  ),
 );

@@ -47,12 +47,16 @@ void main() {
       );
     });
 
-    test('SQL şeması iki tabloyu ve medya kovasını içerir', () {
+    test('SQL şeması v6 güvenlik modelini içerir', () {
       const String sql = SupabaseSyncService.schemaSql;
       expect(sql, contains('create table if not exists public.couple_rooms'));
+      expect(sql, contains('create table if not exists public.room_members'));
       expect(sql, contains('create table if not exists public.chat_messages'));
-      expect(sql, contains("'couple-media'"));
+      expect(sql, contains("'couple-media', 'couple-media', false"));
       expect(sql, contains('supabase_realtime'));
+      expect(sql, contains('is_room_member'));
+      // v5'in herkese açık politikası kaldırıldı.
+      expect(sql.contains('for all using (true)'), isFalse);
     });
   });
 
