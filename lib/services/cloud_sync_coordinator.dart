@@ -306,16 +306,24 @@ final class CloudSyncCoordinator {
   }
 
   /// Durum push'larını single-flight kuyrukla serileştirir.
+  ///
+  /// v6.2 düzeltmesi: `whenComplete()` **yeni** bir `Future` döndürür; eski kod
+  /// `identical(_statePushInFlight, future)` ile sarmalanmamış `future`
+  /// karşılaştırdığı için koşul hiçbir zaman doğru olmuyor ve kilit ilk push'tan
+  /// sonra kalıcı olarak açık kalıyordu (sonraki tüm durum push'ları sessizce
+  /// yutuluyordu). Artık izlenen `Future` (`tracked`) hem alana yazılır hem de
+  /// `whenComplete` callback'inde karşılaştırılır.
   Future<void> _pushStateNow() {
     final Future<void>? inFlight = _statePushInFlight;
     if (inFlight != null) return inFlight;
-    final Future<void> future = _pushStateNowLocked();
-    _statePushInFlight = future.whenComplete(() {
-      if (identical(_statePushInFlight, future)) {
+    late final Future<void> tracked;
+    tracked = _pushStateNowLocked().whenComplete(() {
+      if (identical(_statePushInFlight, tracked)) {
         _statePushInFlight = null;
       }
     });
-    return _statePushInFlight!;
+    _statePushInFlight = tracked;
+    return tracked;
   }
 
   Future<void> _pushStateNowLocked() async {

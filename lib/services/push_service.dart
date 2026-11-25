@@ -210,8 +210,11 @@ abstract final class PushPayloads {
 
 /// iOS/Android kapalıyken OneSignal üzerinden garantili push.
 ///
-/// * Web, test ve eksik yapılandırmada **no-op** çalışır; ağ isteği yapmaz ve
-///   uygulamayı asla çökertmez.
+/// * OneSignal **SDK** yalnızca iOS/Android/macOS'ta başlatılır; Web'de
+///   `initialize`/`login` atlanır (SDK yok) ve uygulama asla çökertmez.
+/// * Gönderim **her platformda** (Web dahil) [PushPayloads.functionName] Edge
+///   Function'ı üzerinden yapılır: Web'den atılan mesaj/dürtme partnerin
+///   iOS/Android telefonuna push olarak gider.
 /// * Uygulama açılışında OneSignal başlatılır, izin istenir ve cihaz sahibi
 ///   oda kapsamlı `external_id` olarak oturum açar
 ///   (`<oda>__<rol>`).
@@ -226,6 +229,7 @@ final class PushService {
   PushService({
     SupabaseClient? Function()? clientProvider,
     bool Function()? supabaseReady,
+    this.webOverride,
   }) : _clientProvider = clientProvider ?? (() => Supabase.instance.client),
        _supabaseReady = supabaseReady ?? _defaultSupabaseReady;
 
@@ -233,6 +237,13 @@ final class PushService {
 
   final SupabaseClient? Function() _clientProvider;
   final bool Function() _supabaseReady;
+
+  /// Test enjeksiyonu: `kIsWeb` derleme sabitini VM testlerinde taklit eder.
+  /// Üretimde `null` → gerçek `kIsWeb` değeri kullanılır.
+  final bool? webOverride;
+
+  /// Çalışma zamanının web olup olmadığı (OneSignal SDK kapısı için).
+  bool get isWeb => webOverride ?? kIsWeb;
 
   bool _initialized = false;
   bool _clickListenerAttached = false;
@@ -304,7 +315,7 @@ final class PushService {
     AppSettings settings, {
     bool requestPermission = true,
   }) async {
-    if (!isSupported || !settings.isPushConfigured) return false;
+    if (isWeb || !isSupported || !settings.isPushConfigured) return false;
     final String appId = settings.oneSignalAppId.trim();
     try {
       if (!_initialized || _appId != appId) {
@@ -417,13 +428,9 @@ final class PushService {
     required Map<String, dynamic> payload,
     int attempt = 0,
   }) async {
-    if (kIsWeb) {
-      return const PushResult(
-        ok: false,
-        statusCode: 0,
-        message: 'Web’de kapalı uygulama push’u yok · iPhone’da çalıştır.',
-      );
-    }
+    // v6.2: Web istemcisi OneSignal SDK'sını başlatamaz (bkz. `isSupported`)
+    // ama Edge Function çağrısını **yapabilir**. Böylece Web'den gönderilen
+    // mesaj/dürtme partnerin iOS/Android telefonuna push götürür.
     if (!settings.isPushConfigured) return PushResult.notConfigured;
     if (!settings.isCloudConfigured) {
       return const PushResult(

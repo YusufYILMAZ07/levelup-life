@@ -88,12 +88,20 @@ abstract final class PinSecurity {
       sha256.convert(utf8.encode('$salt:${legacyNormalize(pin)}')).toString();
 
   /// PBKDF2-HMAC-SHA256 (tek blok = 32 bayt → 64 hex karakter).
+  ///
+  /// v6.2: **katı** normalizasyon kullanılır. Geçersiz PIN (tam 4 rakam
+  /// değilse) sessizce kırpılıp `310199 → 3101` gibi bir çakışma üretmek
+  /// yerine [ArgumentError] fırlatır.
   static String hashPbkdf2(String pin, String salt, {int? iterations}) {
     final int rounds = (iterations ?? PinSecurity.iterations).clamp(
       minIterations,
       maxIterations,
     );
-    final Hmac hmac = Hmac(sha256, utf8.encode(legacyNormalize(pin)));
+    final String clean = normalize(pin);
+    if (clean.isEmpty) {
+      throw ArgumentError.value(pin, 'pin', 'PIN tam 4 rakam olmalı');
+    }
+    final Hmac hmac = Hmac(sha256, utf8.encode(clean));
     final List<int> block = <int>[...utf8.encode(salt), 0, 0, 0, 1];
     List<int> u = hmac.convert(block).bytes;
     final List<int> derived = List<int>.of(u);

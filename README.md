@@ -1,4 +1,4 @@
-# LevelUp Life ⚡ — Couple Edition v6.1 (Yusuf & Ceyda)
+# LevelUp Life ⚡ — Couple Edition v6.2 (Yusuf & Ceyda)
 
 Hayatını bir RPG'ye çeviren Flutter uygulaması — **iki kişilik** sürüm. Günlük
 görevlerini tamamla, XP kazan, seviye atla, 5 temel statını geliştir ve gün
@@ -22,6 +22,18 @@ bildirim alabilirsin.
 > ön planda Realtime + OneSignal çift bildirimi bastırılıyor, Edge Function
 > `push_deliveries` atomik claim ile istemci/webhook çifte push'unu önlüyor.
 > Ayarlar'a canlı **Bildirim & Senkron Sağlık Paneli** eklendi.
+>
+> **v6.2 Hardening & senkron düzeltmesi:** ilk durum push'undan sonra kilitli
+> kalan `_statePushInFlight` yarışı giderildi (art arda gelen tüm yerel
+> değişiklikler buluta ulaşır). Web istemcisi artık OneSignal SDK'sı olmadan da
+> Edge Function üzerinden partnerine push gönderebilir. Oda kurtarma sırrı düz
+> metin yerine **bcrypt özeti** olarak saklanır (`recovery_secret_hash`), oda
+> kodu asla kurtarma sırrı yazılmaz ve `reclaim_couple_role` 5 hatalı denemede
+> 15 dk kilitlenir. Silinen mesajın push idempotency kaydı artık cascade ile
+> silinmez. Bildirim dokunuşları (`plan:`, `sync-rubric`, `checkin`,
+> `special:`) doğru sekmeye yönlendirilir; plan günü/sessiz saat değişimi
+> hatırlatıcıları yeniden zamanlar; outbox `clear()` yarışı ve gece yarısı
+> sessiz saat hesabı düzeltildi.
 
 ## Özellikler
 
@@ -164,8 +176,9 @@ Bulut tamamen opsiyoneldir; **hiçbir şey yapılmazsa uygulama yerel çalışı
 2. **Authentication → Providers → Anonymous → Enable.** (RLS, `auth.uid()`
    üzerinden çalışır; iki cihaz da anonim oturum açar.)
 3. **SQL Editor** → önce `supabase/migrations/20261123000000_v6_security.sql`,
-   sonra `supabase/migrations/20261125000000_v6_1_production_gold.sql`
-   dosyalarının tamamını çalıştır. Bu migrasyonlar:
+   sonra `supabase/migrations/20261125000000_v6_1_production_gold.sql`, sonra
+   `supabase/migrations/20261125120000_v6_2_hardening.sql` dosyalarının
+   tamamını çalıştır. Bu migrasyonlar:
    - `couple_rooms`, `room_members`, `chat_messages` tablolarını + indeksleri,
    - `is_room_member()` / `member_role()` ve `join_couple_room()` fonksiyonlarını,
    - **v6 RLS politikalarını** (oda üyeliği + gönderen rolü doğrulaması),
@@ -174,7 +187,11 @@ Bulut tamamen opsiyoneldir; **hiçbir şey yapılmazsa uygulama yerel çalışı
    - v6.1'de `room_members.last_seen_at/push_enabled/sessiz saat`,
      `chat_messages.read_at/reactions`, güvenli `mark_messages_read` +
      `toggle_message_reaction` RPC'lerini ve `push_deliveries` idempotency
-     tablosunu kurar.
+     tablosunu kurar,
+   - v6.2'de kurtarma sırrını `recovery_secret_hash` (bcrypt) olarak saklar,
+     `issue_couple_recovery_secret` / `set_couple_recovery_secret` RPC'lerini
+     ekler, `reclaim_couple_role`'a kalıcı deneme kilidi getirir ve
+     `push_deliveries.message_id` FK'sini kaldırır.
    Alternatif: `supabase db push` / `supabase migration up`.
 4. Supabase → **Project Settings → API**'den **Project URL** ve **anon/publishable**
    anahtarını al.
@@ -290,7 +307,33 @@ Tamamlananlar:
 - **Tanı:** Ayarlar → Bildirim & Senkron Sağlık Paneli (izin, OneSignal
   identity, oda üyeliği, outbox, karşı tarafa test push).
 
-Bilinçli olarak **v6.2'ye bırakılanlar**:
+## v6.2 kapsamı
+
+Tamamlananlar:
+
+- **Senkron kilidi:** `_pushStateNow` artık izlenen `Future`'ı (`tracked`)
+  karşılaştırdığı için kilit ilk push'tan sonra açılır; art arda gelen yerel
+  değişikliklerin tamamı buluta yazılır (birim testiyle doğrulandı).
+- **Web → mobil push:** Web istemcisi OneSignal SDK'sını atlar ama
+  `send-couple-push` Edge Function'ını çağırır; tarayıcıdan atılan mesaj
+  partnerin telefonuna bildirim olarak gider.
+- **Kurtarma güvenliği:** `recovery_secret` düz metni kaldırıldı; bcrypt
+  `recovery_secret_hash` + `issue_couple_recovery_secret` /
+  `set_couple_recovery_secret` RPC'leri ve 5 denemede 15 dk kilit.
+- **Push idempotency:** `push_deliveries.message_id` FK'si kaldırıldı; mesaj
+  silinse bile aynı kimlik ikinci push üretmez.
+- **Bildirim yönlendirme:** `plan:`, `sync-plan`, `sync-rubric`, `checkin`,
+  `special:` payload'ları doğru sekmeye gider.
+- **Zamanlama doğruluğu:** imzaya `weekday` + sayısal sessiz saat sınırları
+  eklendi; `00:00–00:09` blokları için 10 dk öncesi `23:50–23:59` hesaplanır.
+- **Outbox dayanıklılığı:** `clear()` bekleyen `saveDirtyState` yazımını
+  ezer; `clearDirtyState()` erken dönmez; silme kimlikleri kırpılır.
+- **Exact alarm:** Android 14+ izni `resumed` anında yeniden okunur; kullanıcı
+  sistem ayarlarından izin verdiğinde uygulamayı yeniden başlatmak gerekmez.
+- **PIN:** PBKDF2 ham çağrısı katı 4 hane ister; biyometrik bekleme mesajı
+  "0 sn" yazmaz.
+
+Bilinçli olarak **v6.3'e bırakılanlar**:
 
 - **Sesli not (voice note)** ve **ortak çift görevleri / haftalık seri
   dondurma UI'ı** (`Streak.freezeMissedDay` altyapısı hazır).
@@ -303,6 +346,10 @@ flutter analyze            # No issues found!
 flutter test               # tüm birim + widget testleri
 flutter build web --release
 flutter build ios --simulator --no-codesign
+
+# Bulut tarafı (opsiyonel)
+supabase db push
+supabase functions deploy send-couple-push
 ```
 
 Test kapsamı: XP motoru ve seviye eğrisi, seri kuralları (dondurma dahil),
@@ -318,7 +365,11 @@ birleştirmesi, uzak durumda cihaz kimliği koruması, **kalıcı Outbox flush**
 **PIN brute-force + grace period**, **tuzlu SHA-256 PIN**, DND hesapları ve
 **v6.1 bildirim regresyonları**: gönderen DND'sinde push, alıcı DND'sinde
 yerel bastırma, çevrimdışı outbox push'unun tam 1 kez gitmesi, oda kapsamlı
-external_id, foreground çift bildirim filtresi.
+external_id, foreground çift bildirim filtresi, **v6.2 regresyonları**: ilk
+push sonrası `_statePushInFlight` kilidinin açılması, `clear()` /
+`saveDirtyState()` yarışı, Web'de Edge Function push'unun engellenmemesi, tüm
+bildirim payload'larının doğru sekmeye gitmesi, plan günü/sessiz saat imzası,
+gece yarısı sessiz saat hesabı ve katı PBKDF2 girdisi.
 
 ## Lisans
 

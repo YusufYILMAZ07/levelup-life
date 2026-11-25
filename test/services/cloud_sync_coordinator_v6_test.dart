@@ -527,5 +527,68 @@ void main() {
       expect(localBackend.deleted, contains(message.id));
       expect(outbox.pendingDeletes, isEmpty);
     });
+
+    test(
+      'ilk push kilidi açılır: art arda iki yerel değişiklik de buluta gider',
+      () async {
+        final ProviderContainer local = ProviderContainer(
+          overrides: [
+            gameStoreProvider.overrideWithValue(MemoryGameStore(seed)),
+            appSettingsStoreProvider.overrideWithValue(
+              MemoryAppSettingsStore(_cloudSettings),
+            ),
+          ],
+        );
+        addTearDown(local.dispose);
+        final _FakeBackend localBackend = _FakeBackend(connected: false);
+        final CloudSyncCoordinator coordinator = _coordinator(
+          local,
+          localBackend,
+          MemorySyncOutbox(),
+        );
+        await coordinator.configure(_cloudSettings);
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        // Bağlantı kurulumu ilk tam durum push'unu yapar.
+        expect(localBackend.pushed, isNotEmpty);
+        final int afterFirstPush = localBackend.pushed.length;
+
+        // 1) Birinci yerel değişiklik → 900 ms debounce → push.
+        final ChatMessage first = local
+            .read(gameProvider.notifier)
+            .sendMessage('birinci değişiklik')!;
+        coordinator.onLocalStateChanged(local.read(gameProvider));
+        await Future<void>.delayed(const Duration(milliseconds: 1000));
+        expect(
+          localBackend.pushed.length,
+          greaterThan(afterFirstPush),
+          reason: 'ilk yerel değişiklik buluta yazılmalı',
+        );
+        final int afterSecondPush = localBackend.pushed.length;
+
+        // 2) İkinci yerel değişiklik: `_statePushInFlight` sıfırlanmazsa bu push
+        //    sessizce yutulur (v6.1 regresyonu).
+        final ChatMessage second = local
+            .read(gameProvider.notifier)
+            .sendMessage('ikinci değişiklik')!;
+        coordinator.onLocalStateChanged(local.read(gameProvider));
+        await Future<void>.delayed(const Duration(milliseconds: 1000));
+
+        expect(
+          localBackend.pushed.length,
+          greaterThan(afterSecondPush),
+          reason: 'push kilidi ilk gönderimden sonra açılmalı',
+        );
+        final Iterable<String> lastPushMessageIds = localBackend
+            .pushed
+            .last
+            .couple
+            .messages
+            .map((ChatMessage message) => message.id);
+        expect(lastPushMessageIds, contains(first.id));
+        expect(lastPushMessageIds, contains(second.id));
+
+        await coordinator.disconnect();
+      },
+    );
   });
 }

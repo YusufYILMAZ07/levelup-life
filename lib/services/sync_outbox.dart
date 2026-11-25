@@ -415,7 +415,9 @@ final class LocalSyncOutbox implements SyncOutbox {
 
   @override
   Future<void> dequeueDelete(String messageId) async {
-    final bool removed = _pendingDeletes.remove(messageId);
+    final String id = messageId.trim();
+    if (id.isEmpty) return;
+    final bool removed = _pendingDeletes.remove(id);
     if (!removed) return;
     await _preferences.setString(
       pendingDeletesKey,
@@ -438,7 +440,9 @@ final class LocalSyncOutbox implements SyncOutbox {
 
   @override
   Future<void> clearDirtyState() {
-    if (_dirty == null) return Future<void>.value();
+    // v6.2: `_dirty` zaten null olsa bile **sırada bekleyen** yazımın
+    // (saveDirtyState) tamamlanmasını bekle; aksi hâlde erken `Future.value()`
+    // dönen çağıran, diskteki kirli taslağın silindiğini sanır.
     _dirty = null;
     _dirtyWriteChain = _dirtyWriteChain.catchError((Object _) {}).then((
       _,
@@ -456,12 +460,20 @@ final class LocalSyncOutbox implements SyncOutbox {
     _pushPending.clear();
     _pendingDeletes.clear();
     _dirty = null;
+    // Dirty yazımları tek kuyrukta serileştiği için silme de kuyruğa girer:
+    // bekleyen `saveDirtyState` bitmeden `remove(dirtyKey)` çalışmaz, böylece
+    // clear() sonrasında anahtar yeniden oluşmaz.
+    _dirtyWriteChain = _dirtyWriteChain.catchError((Object _) {}).then((
+      _,
+    ) async {
+      await _preferences.remove(dirtyKey);
+    });
     await _preferences.remove(pendingKey);
     await _preferences.remove(syncedKey);
     await _preferences.remove(pushedKey);
     await _preferences.remove(pushPendingKey);
     await _preferences.remove(pendingDeletesKey);
-    await _preferences.remove(dirtyKey);
+    await _dirtyWriteChain;
   }
 
   Future<void> _persistPending() => _preferences.setString(

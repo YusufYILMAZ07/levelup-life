@@ -162,11 +162,12 @@ final class PinLockController extends Notifier<bool> {
       );
     }
     if (isLockedOut) {
+      // `inSeconds` kırpıldığı için son saniyede 0 görünebilir; kullanıcıya
+      // "0 sn sonra dene" yazmamak için 1..3600 aralığına sabitle.
+      final int seconds = lockoutRemaining.inSeconds.clamp(1, 3600);
       return BiometricResult(
         BiometricStatus.lockedOut,
-        message:
-            'Çok fazla hatalı deneme · '
-            '${lockoutRemaining.inSeconds} sn sonra dene',
+        message: 'Çok fazla hatalı deneme · $seconds sn sonra dene',
       );
     }
     final BiometricResult result = await ref

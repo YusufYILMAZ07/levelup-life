@@ -1046,6 +1046,7 @@ class _NotificationHealthPanelState
   Future<void> _requestPermission() async {
     setState(() => _busy = true);
     await NotificationService.instance.requestPermissions();
+    if (!mounted) return;
     await PushService.instance.initialize(ref.read(appSettingsProvider));
     if (!mounted) return;
     setState(() => _busy = false);
@@ -1054,11 +1055,10 @@ class _NotificationHealthPanelState
 
   Future<void> _sendTest() async {
     setState(() => _testBusy = true);
-    final PushResult result = await PushService.instance.sendTest(
-      ref.read(appSettingsProvider),
-    );
-    ref.read(pushHealthProvider.notifier).set(result);
+    final AppSettings settings = ref.read(appSettingsProvider);
+    final PushResult result = await PushService.instance.sendTest(settings);
     if (!mounted) return;
+    ref.read(pushHealthProvider.notifier).set(result);
     setState(() => _testBusy = false);
     await _refresh();
     if (!mounted) return;

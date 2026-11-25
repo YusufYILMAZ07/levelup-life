@@ -46,7 +46,8 @@ abstract final class MessageDeliveryPolicy {
     required String roomCode,
     required String role,
   }) {
-    final String room = roomCode.trim().toLowerCase();
+    // Tek doğruluk kaynağı: `AppSettings.normalizeRoomCode` + küçük harf.
+    final String room = normalizeRoomForExternalId(roomCode);
     final String cleanRole = role.trim().toLowerCase();
     if (room.isEmpty || cleanRole.isEmpty) return null;
     return '${room}__$cleanRole';

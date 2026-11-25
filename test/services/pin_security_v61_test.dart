@@ -36,6 +36,28 @@ void main() {
       expect(() => PinCredential.create('abcd'), throwsA(isA<ArgumentError>()));
     });
 
+    test('PBKDF2 ham çağrısı da katı 4 hane ister (v6.2)', () {
+      final String salt = PinSecurity.randomSalt();
+      expect(
+        () => PinSecurity.hashPbkdf2('310199', salt),
+        throwsA(isA<ArgumentError>()),
+        reason: 'fazla haneli giriş sessizce kırpılmamalı',
+      );
+      expect(
+        () => PinSecurity.hashPbkdf2('31a01', salt),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(
+        () => PinSecurity.hashPbkdf2('  ', salt),
+        throwsA(isA<ArgumentError>()),
+      );
+      // Geçerli PIN deterministik türetilir.
+      expect(
+        PinSecurity.hashPbkdf2('3101', salt),
+        PinSecurity.hashPbkdf2('3101', salt),
+      );
+    });
+
     test('fazla haneli giriş kayıtlı PIN’i açmaz', () {
       final AppSettings settings = const AppSettings().withPin('2580');
       expect(settings.verifyPin('2580'), isTrue);
@@ -215,6 +237,9 @@ void main() {
       expect(controller.isLockedOut, isTrue);
       final BiometricResult result = await controller.unlockWithBiometrics();
       expect(result.status, BiometricStatus.lockedOut);
+      // v6.2: kalan süre 0'a kırpılıp "0 sn sonra dene" yazmamalı.
+      expect(result.message, isNot(contains('0 sn')));
+      expect(result.message, contains('sn sonra dene'));
       expect(container.read(pinLockProvider), isTrue);
     });
 

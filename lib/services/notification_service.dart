@@ -335,6 +335,20 @@ final class NotificationService {
     }
   }
 
+  /// Android 14+ "tam alarm" (exact alarm) izni kullanıcı tarafından sistem
+  /// ayarlarından değiştirildiğinde önbelleği tazeler.
+  ///
+  /// `AppLifecycleState.resumed` anında çağrılır: kullanıcı izni verdikten
+  /// sonra uygulamayı yeniden başlatmaya gerek kalmadan plan hatırlatıcıları
+  /// tam zamanında planlanır. Diğer platformlarda `true` döner (kısıt yok).
+  Future<bool> refreshExactAlarmPermission() async {
+    _exactAlarmAllowed = null;
+    if (!isSupportedPlatform) return true;
+    if (!await ensureInitialized() || _plugin == null) return false;
+    final AndroidScheduleMode mode = await _androidScheduleMode();
+    return mode == AndroidScheduleMode.exactAllowWhileIdle;
+  }
+
   /// iOS / Android 13+ izin isteği. Reddedilirse sessizce döner.
   Future<bool> requestPermissions() async {
     if (!_ready || _plugin == null) return false;

@@ -30,6 +30,27 @@ class AppServices extends ConsumerStatefulWidget {
 
   final Widget child;
 
+  /// Plan/check-in bildirimlerinin yeniden zamanlanmasını tetikleyen imza.
+  ///
+  /// v6.2: `weekday` ve sayısal sessiz saat sınırları da imzaya dahil; aksi
+  /// hâlde kullanıcı planı başka güne taşıdığında ya da Rahatsız Etme saatini
+  /// değiştirdiğinde eski hatırlatıcılar ekranda kalıyordu.
+  @visibleForTesting
+  static String scheduleSignature(GameState state, AppSettings settings) =>
+      <String>[
+        settings.planReminders.toString(),
+        settings.dailyCheckinReminder.toString(),
+        settings.dailyCheckinLabel,
+        settings.doNotDisturbEnabled.toString(),
+        settings.quietStartMinutes.toString(),
+        settings.quietEndMinutes.toString(),
+        settings.quietHoursLabel,
+        state.activePartnerId,
+        for (final ScheduleBlock block in state.couple.scheduleBlocks)
+          '${block.id}:${block.weekday}:${block.startMinutes}:'
+              '${block.endMinutes}:${block.title}',
+      ].join('|');
+
   @override
   ConsumerState<AppServices> createState() => _AppServicesState();
 }
@@ -59,13 +80,40 @@ class _AppServicesState extends ConsumerState<AppServices>
     unawaited(_bootstrap());
   }
 
+  /// Yerel bildirim payload'ını doğru sekmeye yönlendirir.
+  ///
+  /// v6.2: yalnızca `chat:` değil **tüm** payload türleri (plan, rubrik,
+  /// check-in, özel gün) hedeflenir; aksi hâlde kullanıcı bildirime dokunup
+  /// uygulamayı açtığında hiçbir şey olmuyor gibi görünüyordu.
   void _handleLocalNotificationTap(String? payload) {
     if (!mounted || payload == null) return;
-    if (payload.startsWith('chat:')) {
-      ref.read(shellTabProvider.notifier).goToChat();
+    final String clean = payload.trim();
+    if (clean.isEmpty) return;
+    final ShellTabController tabs = ref.read(shellTabProvider.notifier);
+    if (clean.startsWith('chat:')) {
+      tabs.goToChat();
       ref
           .read(chatFocusMessageProvider.notifier)
-          .focus(payload.substring('chat:'.length));
+          .focus(clean.substring('chat:'.length));
+      return;
+    }
+    if (clean == 'sync-rubric') {
+      // Karşı taraf rubriği güncelledi → Gelişim sekmesi.
+      tabs.goToDevelopment();
+      return;
+    }
+    if (clean == 'sync-plan' || clean.startsWith('plan:')) {
+      // Plan değişikliği / plan hatırlatıcısı → Bugün (Plan) sekmesi.
+      tabs.goTo(ShellTabController.today);
+      return;
+    }
+    if (clean == 'checkin' || clean.startsWith('checkin:')) {
+      tabs.goTo(ShellTabController.today);
+      return;
+    }
+    if (clean.startsWith('special:')) {
+      // Özel günler İlerleme sekmesinde listelenir.
+      tabs.goTo(ShellTabController.progress);
     }
   }
 
@@ -113,12 +161,13 @@ class _AppServicesState extends ConsumerState<AppServices>
       settings,
       requestPermission: settings.wantsNotifications,
     );
+    if (!mounted) return;
     ref.read(gameProvider.notifier).enforceDeviceOwner();
     _booted = true;
-    if (!mounted) return;
     _syncSchedules(ref.read(gameProvider), ref.read(appSettingsProvider));
     await ref.read(cloudSyncProvider).configure(ref.read(appSettingsProvider));
-    if (mounted) unawaited(_maybePromptDeviceOwner());
+    if (!mounted) return;
+    unawaited(_maybePromptDeviceOwner());
   }
 
   /// İlk açılışta tek seferlik "Bu telefon kimin?" karşılaması.
@@ -191,6 +240,9 @@ class _AppServicesState extends ConsumerState<AppServices>
     }
     if (state == AppLifecycleState.resumed) {
       ref.read(pinLockProvider.notifier).onAppResumed();
+      // Kullanıcı sistem ayarlarından tam alarm iznini verdiyse yeniden
+      // başlatmaya gerek kalmadan etkinleşsin (Android 14+).
+      unawaited(NotificationService.instance.refreshExactAlarmPermission());
       _syncSchedules(ref.read(gameProvider), ref.read(appSettingsProvider));
       unawaited(
         ref.read(cloudSyncProvider).configure(ref.read(appSettingsProvider)),
@@ -298,9 +350,10 @@ class _AppServicesState extends ConsumerState<AppServices>
         .toSet();
     final Set<String> fresh = opened.difference(_openedCapsules);
     _openedCapsules = opened;
-    if (fresh.isEmpty || !ref.read(appSettingsProvider).messageNotifications) {
-      return;
-    }
+    final AppSettings settings = ref.read(appSettingsProvider);
+    if (fresh.isEmpty || !settings.messageNotifications) return;
+    // Sessiz saatte kapsül bildirimi de gösterilmez (v6.2 tutarlılık).
+    if (settings.isQuietAt(DateTime.now())) return;
     // Toplu geçmiş çekiminde bildirim yağmuru olmasın: yalnızca en son açılan.
     RewardCapsule? latest;
     for (final RewardCapsule capsule in next.couple.rewardCapsules) {
@@ -362,28 +415,21 @@ class _AppServicesState extends ConsumerState<AppServices>
   /// ister (özellikle Android 13+ ve iOS). İzin sonrası plan hatırlatıcıları
   /// yenilenir; aksi halde ilk izin reddedildiğinde sessiz kalırdı.
   Future<void> _ensureNotificationPermission() async {
+    if (!mounted) return;
     final bool ready = await NotificationService.instance.init();
-    if (!ready) return;
+    if (!ready || !mounted) return;
     await NotificationService.instance.requestPermissions();
+    if (!mounted) return;
     // OneSignal izni de yalnızca kullanıcı bildirimleri açtığında istenir.
     await PushService.instance.initialize(ref.read(appSettingsProvider));
-    _planSignature = '';
     if (!mounted) return;
+    _planSignature = '';
     _syncSchedules(ref.read(gameProvider), ref.read(appSettingsProvider));
   }
 
   void _syncSchedules(GameState state, AppSettings settings) {
     final List<ScheduleBlock> blocks = state.couple.scheduleBlocks;
-    final String signature = <String>[
-      settings.planReminders.toString(),
-      settings.dailyCheckinReminder.toString(),
-      settings.dailyCheckinLabel,
-      settings.doNotDisturbEnabled.toString(),
-      settings.quietHoursLabel,
-      state.activePartnerId,
-      for (final ScheduleBlock block in blocks)
-        '${block.id}:${block.startMinutes}:${block.title}',
-    ].join('|');
+    final String signature = AppServices.scheduleSignature(state, settings);
     if (signature == _planSignature || !_booted) return;
     _planSignature = signature;
 
@@ -421,7 +467,9 @@ class _AppServicesState extends ConsumerState<AppServices>
   /// gelmediğini hesaplar.
   static bool _fallsIntoQuietHours(ScheduleBlock block, AppSettings settings) {
     if (!settings.doNotDisturbEnabled) return false;
-    final int reminder = (block.startMinutes - 10).clamp(0, 1439);
+    // Gece yarısı sınırı: `00:00–00:09` bloklarının 10 dk öncesi `23:50–23:59`
+    // olmalı; `clamp(0, 1439)` negatifi 00:00'a yuvarlıyordu.
+    final int reminder = (block.startMinutes - 10 + 1440) % 1440;
     final DateTime probe = DateTime(2000, 1, 1, reminder ~/ 60, reminder % 60);
     return settings.isQuietAt(probe);
   }
