@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,6 +26,10 @@ final class _FakeBackend implements CloudSyncBackend {
   final List<String> readMessageIds = <String>[];
   final List<String> reactionEvents = <String>[];
   final List<bool> memberHealthPushes = <bool>[];
+
+  /// Test, `pushState` çağrısını bu kapıyla askıya alabilir (v6.3 trailing
+  /// push regresyonu: ağ isteği sürerken gelen yerel değişiklik).
+  Completer<void>? pushGate;
 
   @override
   bool get isConnected => connected;
@@ -65,6 +70,8 @@ final class _FakeBackend implements CloudSyncBackend {
   @override
   Future<bool> pushState(GameState state) async {
     pushed.add(state);
+    final Completer<void>? gate = pushGate;
+    if (gate != null) await gate.future;
     return true;
   }
 
@@ -586,6 +593,77 @@ void main() {
             .map((ChatMessage message) => message.id);
         expect(lastPushMessageIds, contains(first.id));
         expect(lastPushMessageIds, contains(second.id));
+
+        await coordinator.disconnect();
+      },
+    );
+
+    test(
+      'push sürerken gelen yerel değişiklik trailing push ile gönderilir',
+      () async {
+        final ProviderContainer local = ProviderContainer(
+          overrides: [
+            gameStoreProvider.overrideWithValue(MemoryGameStore(seed)),
+            appSettingsStoreProvider.overrideWithValue(
+              MemoryAppSettingsStore(_cloudSettings),
+            ),
+          ],
+        );
+        addTearDown(local.dispose);
+        final _FakeBackend localBackend = _FakeBackend(connected: false);
+        final CloudSyncCoordinator coordinator = _coordinator(
+          local,
+          localBackend,
+          MemorySyncOutbox(),
+        );
+        await coordinator.configure(_cloudSettings);
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        expect(localBackend.pushed, isNotEmpty);
+
+        // 1) Ağ isteği kapıda askıya alınır (yavaş bağlantı taklidi).
+        final Completer<void> gate = Completer<void>();
+        localBackend.pushGate = gate;
+        final ChatMessage first = local
+            .read(gameProvider.notifier)
+            .sendMessage('kilidi tutan değişiklik')!;
+        coordinator.onLocalStateChanged(local.read(gameProvider));
+        // Debounce (900 ms) sonrası push başlar ve `gate`te bekler.
+        await Future<void>.delayed(const Duration(milliseconds: 1000));
+        final int inFlightPushes = localBackend.pushed.length;
+        expect(
+          localBackend.pushed.last.couple.messages.map(
+            (ChatMessage message) => message.id,
+          ),
+          contains(first.id),
+        );
+
+        // 2) İstek hâlâ uçuşta: ikinci yerel değişiklik gelir.
+        final ChatMessage second = local
+            .read(gameProvider.notifier)
+            .sendMessage('uçuş sırasında yazıldı')!;
+        coordinator.onLocalStateChanged(local.read(gameProvider));
+
+        // 3) İstek tamamlanır: trailing push ikinci değişikliği de taşımalı.
+        gate.complete();
+        localBackend.pushGate = null;
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+
+        expect(
+          localBackend.pushed.length,
+          greaterThan(inFlightPushes),
+          reason: 'uçuştaki push bitince bir kez daha gönderilmeli',
+        );
+        final Iterable<String> trailingIds = localBackend
+            .pushed
+            .last
+            .couple
+            .messages
+            .map((ChatMessage message) => message.id);
+        expect(
+          trailingIds,
+          contains(second.id),
+          reason: 'ağ turu sırasındaki değişiklik sunucuya gitmeden kalmamalı',
+        );
 
         await coordinator.disconnect();
       },

@@ -340,14 +340,37 @@ final class NotificationService {
   ///
   /// `AppLifecycleState.resumed` anında çağrılır: kullanıcı izni verdikten
   /// sonra uygulamayı yeniden başlatmaya gerek kalmadan plan hatırlatıcıları
-  /// tam zamanında planlanır. Diğer platformlarda `true` döner (kısıt yok).
+  /// tam zamanında planlanır.
+  ///
+  /// v6.3: dönüş değeri artık **izin değişti mi** anlamına gelir (önceki
+  /// `bool` "izin var mı" bilgisiydi). `AppServices` yalnızca `true` sonucunda
+  /// `_planSignature` sıfırlayıp planları `exact` / `inexact` moduyla yeniden
+  /// zamanlar. Önceki değer bilinmiyorsa (uygulama yeni açıldı) `false` döner.
   Future<bool> refreshExactAlarmPermission() async {
+    final bool? before = _exactAlarmAllowed;
     _exactAlarmAllowed = null;
-    if (!isSupportedPlatform) return true;
-    if (!await ensureInitialized() || _plugin == null) return false;
-    final AndroidScheduleMode mode = await _androidScheduleMode();
-    return mode == AndroidScheduleMode.exactAllowWhileIdle;
+    bool now;
+    if (!isSupportedPlatform) {
+      now = before ?? true;
+      _exactAlarmAllowed = now;
+    } else if (!await ensureInitialized() || _plugin == null) {
+      // Plugin yok / test ortamı: önbellek korunur, "değişti" denmez.
+      _exactAlarmAllowed = before;
+      return false;
+    } else {
+      now =
+          (await _androidScheduleMode()) ==
+          AndroidScheduleMode.exactAllowWhileIdle;
+    }
+    return exactAlarmPermissionChanged(before: before, now: now);
   }
+
+  /// İzin durumu değişim tespiti (saf fonksiyon, plugin gerektirmez).
+  @visibleForTesting
+  static bool exactAlarmPermissionChanged({
+    required bool? before,
+    required bool now,
+  }) => before != null && before != now;
 
   /// iOS / Android 13+ izin isteği. Reddedilirse sessizce döner.
   Future<bool> requestPermissions() async {

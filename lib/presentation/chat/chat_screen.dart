@@ -54,6 +54,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String? _focusedMessageId;
   Timer? _focusClearTimer;
 
+  /// Mesaj balonlarının render referansı (`Scrollable.ensureVisible` için).
+  ///
+  /// Yalnızca odaklanılan/tutulan kimlikler saklanır; `_pruneMessageKeys` ile
+  /// liste dışına çıkanlar temizlenir (bellek sızıntısı yok).
+  final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
+
+  GlobalKey _messageKeyFor(String messageId) => _messageKeys.putIfAbsent(
+    messageId,
+    () => GlobalKey(debugLabel: 'chat-message-$messageId'),
+  );
+
+  void _pruneMessageKeys(Set<String> liveIds) {
+    if (_messageKeys.length <= 300) return;
+    _messageKeys.removeWhere((String id, GlobalKey _) => !liveIds.contains(id));
+  }
+
   static const List<String> _quickReactions = <String>[
     '❤️',
     '😂',
@@ -77,7 +93,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // değeri `ref.listen` kaçırır; burada bir kez tüket.
       final String? pendingFocus = ref.read(chatFocusMessageProvider);
       if (pendingFocus != null && pendingFocus.trim().isNotEmpty) {
-        _focusMessage(pendingFocus);
+        unawaited(_focusMessage(pendingFocus));
         ref.read(chatFocusMessageProvider.notifier).clear();
       }
     });
@@ -108,29 +124,80 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     unawaited(ref.read(cloudSyncProvider).markMessagesRead(latest));
   }
 
-  void _focusMessage(String messageId) {
-    final List<ChatMessage> messages = ref.read(gameProvider).couple.messages;
-    final int index = messages.indexWhere(
-      (ChatMessage message) => message.id == messageId,
-    );
-    setState(() => _focusedMessageId = messageId);
+  /// Bildirim/push'tan gelen mesajı bulur, gerekirse eski geçmişi yükler ve
+  /// balonu tam olarak hizalar.
+  ///
+  /// v6.3: mesaj bellekte yoksa en fazla 2 sayfa eski geçmiş denenir; hâlâ
+  /// bulunamazsa kullanıcıya bilgi verilir. Bulunduğunda oran bazlı kaba
+  /// tahkikten sonra `Scrollable.ensureVisible` ile tam hizalama yapılır ve
+  /// kısa bir vurgu animasyonu gösterilir.
+  Future<void> _focusMessage(String messageId) async {
+    final String id = messageId.trim();
+    if (id.isEmpty) return;
+    if (!mounted) return;
+    // Arama filtresi açıksa hedef balon hiç render edilmez; temizle.
+    if (_query.trim().isNotEmpty) {
+      _search.clear();
+      setState(() => _query = '');
+    }
+    setState(() => _focusedMessageId = id);
     _focusClearTimer?.cancel();
     _focusClearTimer = Timer(const Duration(seconds: 4), () {
       if (!mounted) return;
       setState(() => _focusedMessageId = null);
     });
-    if (index < 0) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+
+    int index = _messageIndexOf(id);
+    for (int page = 0; page < 2 && index < 0; page++) {
+      final int added = await _loadOlderSilently();
+      // -1: bağlantı yok, 0: daha eski mesaj kalmadı → daha fazla deneme yok.
+      if (added <= 0) break;
+      index = _messageIndexOf(id);
+    }
+    if (!mounted) return;
+    if (index < 0) {
+      _snack('Bu mesaj eski geçmişte veya silinmiş');
+      return;
+    }
+    await _scrollToMessage(id, index);
+  }
+
+  int _messageIndexOf(String id) => ref
+      .read(gameProvider)
+      .couple
+      .messages
+      .indexWhere((ChatMessage message) => message.id == id);
+
+  /// Oran bazlı tahmini kaydırma + hedef balon render olduysa tam hizalama.
+  Future<void> _scrollToMessage(String id, int index) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_scroll.hasClients) return;
+    final List<ChatMessage> messages = ref.read(gameProvider).couple.messages;
+    final double ratio = messages.isEmpty ? 0 : index / messages.length;
+    double targetFor(ScrollPosition position) =>
+        (position.maxScrollExtent * ratio).clamp(0.0, position.maxScrollExtent);
+    _scroll.animateTo(
+      targetFor(_scroll.position),
+      duration: const Duration(milliseconds: 320),
+      curve: AppMotion.enter,
+    );
+    // Tembel `ListView` hedefi hemen kurmayabilir: iki kare boyunca dene.
+    for (int attempt = 0; attempt < 2; attempt++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final BuildContext? target = _messageKeys[id]?.currentContext;
+      if (target != null && target.mounted) {
+        await Scrollable.ensureVisible(
+          target,
+          alignment: 0.35,
+          duration: const Duration(milliseconds: 280),
+          curve: AppMotion.enter,
+        );
+        return;
+      }
       if (!_scroll.hasClients) return;
-      final double ratio = messages.isEmpty ? 0 : index / messages.length;
-      final double target =
-          _scroll.position.maxScrollExtent * ratio.clamp(0.0, 1.0);
-      _scroll.animateTo(
-        target,
-        duration: const Duration(milliseconds: 320),
-        curve: AppMotion.enter,
-      );
-    });
+      _scroll.jumpTo(targetFor(_scroll.position));
+    }
   }
 
   bool _typingSent = false;
@@ -197,24 +264,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
   }
 
-  Future<void> _loadOlderMessages() async {
-    if (_loadingOlder) return;
+  /// Sessiz sayfalama: snackbar göstermez (mesaj odağı akışı kullanır).
+  ///
+  /// Dönüş: eklenen mesaj sayısı; bağlantı yok/hata `-1`; eski mesaj yok `0`.
+  Future<int> _loadOlderSilently() async {
+    if (_loadingOlder) return 0;
     setState(() => _loadingOlder = true);
-    int added = 0;
-    String? failure;
+    int added;
     try {
       added = await ref.read(cloudSyncProvider).loadOlderMessages();
-    } catch (error) {
-      failure = error.toString();
+    } catch (_) {
+      added = -1;
     } finally {
-      // Hata/success ne olursa olsun spinner kapanır.
+      // Hata/başarı ne olursa olsun spinner kapanır.
       if (mounted) setState(() => _loadingOlder = false);
     }
+    return added;
+  }
+
+  Future<void> _loadOlderMessages() async {
+    final int added = await _loadOlderSilently();
     if (!mounted) return;
-    if (failure != null) {
-      _snack('Geçmiş yüklenemedi · bağlantıyı kontrol et');
-      return;
-    }
     if (added < 0) {
       _snack('Önce Ayarlar’dan Supabase bağlantısını kur ☁️');
     } else if (added == 0) {
@@ -680,7 +750,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (next == null || next.trim().isEmpty) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _focusMessage(next);
+        unawaited(_focusMessage(next));
         ref.read(chatFocusMessageProvider.notifier).clear();
       });
     });
@@ -860,6 +930,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
       rows.add(message);
     }
+    _pruneMessageKeys(<String>{
+      for (final ChatMessage message in visible) message.id,
+    });
 
     return ListView.builder(
       controller: _scroll,
@@ -886,20 +959,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return _DatePill(label: _dayLabel(row));
         }
         final ChatMessage message = row as ChatMessage;
+        final bool focused = message.id == _focusedMessageId;
         return RepaintBoundary(
-          child: _MessageBubble(
-            key: ValueKey<String>('chat-${message.id}'),
-            message: message,
-            isMine: message.senderId == state.activePartnerId,
-            highlighted: message.id == _focusedMessageId,
-            onLike: () =>
-                ref.read(gameProvider.notifier).likeMessage(message.id),
-            onOpen: () => showPhotoLightbox(context, message),
-            onLongPress: () => _openActions(message),
-            onSwipeReply: () => _startReply(message),
+          key: _messageKeyFor(message.id),
+          child: _FocusPulse(
+            active: focused,
+            child: _MessageBubble(
+              key: ValueKey<String>('chat-${message.id}'),
+              message: message,
+              isMine: message.senderId == state.activePartnerId,
+              highlighted: focused,
+              onLike: () =>
+                  ref.read(gameProvider.notifier).likeMessage(message.id),
+              onOpen: () => showPhotoLightbox(context, message),
+              onLongPress: () => _openActions(message),
+              onSwipeReply: () => _startReply(message),
+            ),
           ),
         );
       },
+    );
+  }
+}
+
+/// Odaklanan mesaj balonuna kısa bir "nabız" animasyonu uygular.
+///
+/// Yalnızca odak aktifken ağaca girer; böylece `TweenAnimationBuilder` her
+/// odakta baştan oynar. Düzen ölçüsünü etkilemez (`Transform.scale`).
+class _FocusPulse extends StatelessWidget {
+  const _FocusPulse({required this.active, required this.child});
+
+  final bool active;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!active) return child;
+    return TweenAnimationBuilder<double>(
+      key: const ValueKey<String>('chat-focus-pulse'),
+      tween: Tween<double>(begin: 0.965, end: 1),
+      duration: const Duration(milliseconds: 340),
+      curve: AppMotion.enter,
+      builder: (BuildContext context, double scale, Widget? inner) =>
+          Transform.scale(scale: scale, child: inner),
+      child: child,
     );
   }
 }

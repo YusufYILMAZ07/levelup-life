@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1044,22 +1045,37 @@ class _NotificationHealthPanelState
   }
 
   Future<void> _requestPermission() async {
+    if (!mounted) return;
     setState(() => _busy = true);
-    await NotificationService.instance.requestPermissions();
+    try {
+      await NotificationService.instance.requestPermissions();
+      if (!mounted) return;
+      await PushService.instance.initialize(ref.read(appSettingsProvider));
+    } catch (_) {
+      // İzin akışı istisna fırlatsa bile panel düğmeleri kilitli kalmaz.
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
     if (!mounted) return;
-    await PushService.instance.initialize(ref.read(appSettingsProvider));
-    if (!mounted) return;
-    setState(() => _busy = false);
+    // İzin ve sağlık rozetleri anında güncellensin.
     await _refresh();
   }
 
   Future<void> _sendTest() async {
+    if (!mounted) return;
     setState(() => _testBusy = true);
-    final AppSettings settings = ref.read(appSettingsProvider);
-    final PushResult result = await PushService.instance.sendTest(settings);
+    late PushResult result;
+    try {
+      result = await PushService.instance.sendTest(
+        ref.read(appSettingsProvider),
+      );
+    } catch (error) {
+      result = PushResult.fromError(error);
+    } finally {
+      if (mounted) setState(() => _testBusy = false);
+    }
     if (!mounted) return;
     ref.read(pushHealthProvider.notifier).set(result);
-    setState(() => _testBusy = false);
     await _refresh();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -1183,8 +1199,15 @@ class _NotificationHealthPanelState
         ),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          'Test yanıtı Edge Function HTTP kodunu ve OneSignal teslim '
-          'durumunu gösterir. 401/403’te oturum bir kez otomatik yenilenir.',
+          kIsWeb
+              ? 'Bu test bildirimi bu tarayıcıya değil, partnerin mobil '
+                    'cihazına (OneSignal) gider. Web’de yerel bildirim '
+                    'gösterilmez; yanıt Edge Function HTTP kodunu ve teslim '
+                    'durumunu gösterir.'
+              : 'Test yanıtı Edge Function HTTP kodunu ve OneSignal teslim '
+                    'durumunu gösterir. 401/403’te oturum bir kez otomatik '
+                    'yenilenir.',
+          key: const Key('health-test-note'),
           style: AppTypography.caption.copyWith(
             color: AppColors.textTertiary,
             height: 1.4,
@@ -1639,18 +1662,222 @@ class _CloudSyncSettingsState extends ConsumerState<_CloudSyncSettings> {
       return;
     }
     setState(() => _busy = true);
-    ref
-        .read(appSettingsProvider.notifier)
-        .saveCloudConfig(
-          url: _url.text,
-          anonKey: _key.text,
-          roomCode: _room.text,
-          deviceRole: _role,
-        );
-    await ref.read(cloudSyncProvider).configure(ref.read(appSettingsProvider));
+    try {
+      ref
+          .read(appSettingsProvider.notifier)
+          .saveCloudConfig(
+            url: _url.text,
+            anonKey: _key.text,
+            roomCode: _room.text,
+            deviceRole: _role,
+          );
+      await ref
+          .read(cloudSyncProvider)
+          .configure(ref.read(appSettingsProvider));
+    } catch (error) {
+      if (mounted) {
+        _snack('Bağlantı kurulamadı · $error');
+        setState(() => _busy = false);
+      }
+      return;
+    }
     if (!mounted) return;
     setState(() => _busy = false);
-    _snack(ref.read(syncStatusProvider).message);
+    final SyncStatusInfo status = ref.read(syncStatusProvider);
+    _snack(status.message);
+    // Yeni cihazda rol başka cihazda kalmışsa doğrudan kurtarma diyaloğu aç:
+    // kullanıcı menü aramadan rolünü geri alabilsin.
+    if (status.status == SyncStatus.error &&
+        status.message.contains('başka bir cihazda')) {
+      await _openReclaimDialog(auto: true);
+    }
+  }
+
+  /// Odanın normalize edilmiş kodu: form alanı boşsa kayıtlı ayar kullanılır.
+  String get _roomCode {
+    final String typed = _room.text.trim();
+    return typed.isEmpty ? ref.read(appSettingsProvider).roomCode : typed;
+  }
+
+  /// Tek tıkla yeni kurtarma kodu üretir ve tek seferlik diyalogda gösterir.
+  Future<void> _issueRecovery() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    late RecoverySecretResult result;
+    try {
+      result = await ref.read(cloudSyncProvider).issueRecoverySecret(_roomCode);
+    } catch (error) {
+      result = RecoverySecretResult(message: 'Kod üretilemedi · $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    final String? secret = result.secret;
+    if (!result.isOk || secret == null) {
+      _snack(
+        result.message.trim().isEmpty
+            ? 'Kurtarma kodu üretilemedi'
+            : result.message,
+      );
+      return;
+    }
+    await _showRecoveryCode(secret);
+  }
+
+  /// Düz metin kodu **yalnızca bir kez** gösterir; kopyalama kolaylığı sunar.
+  Future<void> _showRecoveryCode(String secret) async {
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        key: const Key('recovery-code-dialog'),
+        title: const Text('🔑 Oda Kurtarma Kodu'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Bu kod bir kez gösterilir, güvenli bir yere kaydet. Yeni '
+                'telefonda “Rolümü Geri Al” için bu kodu kullanacaksın.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              SelectableText(
+                secret,
+                key: const Key('recovery-code-value'),
+                style: AppTypography.subtitle.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          TextButton.icon(
+            key: const Key('recovery-code-copy'),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: secret));
+              if (!dialogContext.mounted) return;
+              Navigator.of(dialogContext).pop();
+              _snack('Kurtarma kodu panoya kopyalandı 📋');
+            },
+            icon: const Icon(Icons.copy_rounded, size: 16),
+            label: const Text('Kopyala'),
+          ),
+          FilledButton(
+            key: const Key('recovery-code-done'),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Kaydettim'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Kurtarma koduyla rolü bu cihaza devralır.
+  ///
+  /// [auto] `true` ise `role taken` hatasından sonra kendiliğinden açılır ve
+  /// kullanıcıya neden gösterildiği anlatılır.
+  Future<void> _openReclaimDialog({bool auto = false}) async {
+    final TextEditingController secret = TextEditingController();
+    final bool? submitted = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        bool busy = false;
+        String? error;
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setDialogState) {
+            Future<void> submit() async {
+              final String value = secret.text.trim();
+              if (value.isEmpty) {
+                setDialogState(() => error = 'Kurtarma kodu boş olamaz.');
+                return;
+              }
+              setDialogState(() {
+                busy = true;
+                error = null;
+              });
+              final RoleReclaimResult result = await ref
+                  .read(cloudSyncProvider)
+                  .reclaimRole(
+                    roomCode: _roomCode,
+                    role: _role,
+                    recoverySecret: value,
+                  );
+              if (!dialogContext.mounted) return;
+              if (result.isOk) {
+                Navigator.of(dialogContext).pop(true);
+                return;
+              }
+              setDialogState(() {
+                busy = false;
+                error = result.displayMessage;
+              });
+            }
+
+            return AlertDialog(
+              key: const Key('reclaim-role-dialog'),
+              title: const Text('🔄 Rolümü Geri Al'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      auto
+                          ? 'Bu rol başka bir cihazda görünüyor. Kaydettiğin '
+                                'kurtarma koduyla rolü bu cihaza alabilirsin.'
+                          : 'Yeni cihazda rolü devralmak için oda kurtarma '
+                                'kodunu gir.',
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextField(
+                      key: const Key('reclaim-secret-input'),
+                      controller: secret,
+                      autofocus: true,
+                      obscureText: true,
+                      enabled: !busy,
+                      decoration: const InputDecoration(
+                        labelText: 'Kurtarma kodu',
+                      ),
+                      onSubmitted: (_) => submit(),
+                    ),
+                    if (error != null) ...<Widget>[
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        error!,
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.danger,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: <Widget>[
+                TextButton(
+                  key: const Key('reclaim-cancel'),
+                  onPressed: busy
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Vazgeç'),
+                ),
+                FilledButton(
+                  key: const Key('reclaim-submit'),
+                  onPressed: busy ? null : submit,
+                  child: Text(busy ? 'Deneniyor…' : 'Rolümü Geri Al'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    secret.dispose();
+    if (submitted == true && mounted) {
+      _snack('Rol bu cihaza alındı ✅ · bağlantı yeniden kuruluyor');
+    }
   }
 
   Future<void> _copySql() async {
@@ -1796,12 +2023,65 @@ class _CloudSyncSettingsState extends ConsumerState<_CloudSyncSettings> {
               ),
           ],
         ),
+        const SizedBox(height: AppSpacing.md),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: AppRadii.mdAll,
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                '🔑 Oda Kurtarma Kodu',
+                style: AppTypography.subtitle.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Telefon değişince veya uygulama silinip yeniden kurulunca '
+                'rolünü bu kodla geri alırsın. Kod sunucuda yalnızca bcrypt '
+                'özeti olarak saklanır; düz metin bir kez gösterilir.',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.textTertiary,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: <Widget>[
+                  FilledButton.tonalIcon(
+                    key: const Key('cloud-issue-recovery'),
+                    onPressed: _busy ? null : _issueRecovery,
+                    icon: const Icon(Icons.vpn_key_rounded, size: 17),
+                    label: const Text('Kurtarma Kodu Oluştur'),
+                  ),
+                  OutlinedButton.icon(
+                    key: const Key('cloud-reclaim-role'),
+                    onPressed: _busy
+                        ? null
+                        : () => _openReclaimDialog(auto: false),
+                    icon: const Icon(Icons.restore_rounded, size: 17),
+                    label: const Text('Rolümü Geri Al'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          'Kurulum: Supabase → SQL Editor → önce v6 güvenlik, sonra v6.1 '
-          'sohbet/push migration’ını çalıştır. Ardından buraya URL + anon key '
-          '+ oda kodunu gir; iki telefon aynı odaya bağlanınca mesajlar anında '
-          'akar.',
+          'Kurulum: Supabase → SQL Editor → sırasıyla v6 güvenlik, v6.1 '
+          'sohbet/push, v6.2 kurtarma ve v6.3 polish migration’larını '
+          'çalıştır. Ardından buraya URL + anon key + oda kodunu gir; iki '
+          'telefon aynı odaya bağlanınca mesajlar anında akar.',
           style: AppTypography.caption.copyWith(
             color: AppColors.textTertiary,
             height: 1.4,

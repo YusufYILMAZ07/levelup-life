@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../application/game_state.dart';
@@ -202,7 +203,31 @@ final class LocalSyncOutbox implements SyncOutbox {
   final Set<String> _pendingDeletes = <String>{};
   GameState? _dirty;
   bool _loaded = false;
-  Future<void> _dirtyWriteChain = Future<void>.value();
+
+  /// Tüm `SharedPreferences` yazma/silme işlemlerinin seri kuyruğu.
+  ///
+  /// v6.3: yalnızca `dirtyKey` değil **her** anahtar (`pending`, `synced`,
+  /// `pushed`, `pushPending`, `pendingDeletes`) bu kuyruktan geçer. Böylece
+  /// `dequeueDelete` / `enqueue` yazımı sürerken gelen `clear()` araya girip
+  /// eski bir anlık görüntüyü diske geri yazamaz; sıra her zaman çağrı sırasıdır.
+  Future<void> _writeChain = Future<void>.value();
+
+  /// Testlerde yazım gecikmesini taklit etmek için (üretimde `null`).
+  @visibleForTesting
+  static Future<void> Function()? debugWriteDelay;
+
+  /// Yazımı kuyruğa ekler; önceki yazımın bitmesini bekler.
+  ///
+  /// `action` içindeki değerler çağrı anında (kuyruğa girmeden önce) alınır,
+  /// böylece sonraki mutasyonlar önceki yazımın içeriğini değiştirmez.
+  Future<void> _enqueueWrite(Future<void> Function() action) {
+    _writeChain = _writeChain.catchError((Object _) {}).then((_) async {
+      final Future<void> Function()? delay = debugWriteDelay;
+      if (delay != null) await delay();
+      await action();
+    });
+    return _writeChain;
+  }
 
   static Future<LocalSyncOutbox> open() async {
     final SharedPreferences preferences = await SharedPreferences.getInstance();
@@ -359,7 +384,8 @@ final class LocalSyncOutbox implements SyncOutbox {
         ..clear()
         ..addAll(kept);
     }
-    await _preferences.setString(syncedKey, jsonEncode(_synced.toList()));
+    final String payload = jsonEncode(_synced.toList());
+    await _enqueueWrite(() => _preferences.setString(syncedKey, payload));
   }
 
   @override
@@ -374,10 +400,8 @@ final class LocalSyncOutbox implements SyncOutbox {
         ..clear()
         ..addAll(kept);
     }
-    await _preferences.setString(
-      pushPendingKey,
-      jsonEncode(_pushPending.toList()),
-    );
+    final String payload = jsonEncode(_pushPending.toList());
+    await _enqueueWrite(() => _preferences.setString(pushPendingKey, payload));
   }
 
   @override
@@ -395,11 +419,14 @@ final class LocalSyncOutbox implements SyncOutbox {
           ..clear()
           ..addAll(kept);
       }
-      await _preferences.setString(pushedKey, jsonEncode(_pushed.toList()));
+      final String pushedPayload = jsonEncode(_pushed.toList());
+      await _enqueueWrite(
+        () => _preferences.setString(pushedKey, pushedPayload),
+      );
     }
-    await _preferences.setString(
-      pushPendingKey,
-      jsonEncode(_pushPending.toList()),
+    final String pendingPayload = jsonEncode(_pushPending.toList());
+    await _enqueueWrite(
+      () => _preferences.setString(pushPendingKey, pendingPayload),
     );
   }
 
@@ -407,9 +434,9 @@ final class LocalSyncOutbox implements SyncOutbox {
   Future<void> enqueueDelete(String messageId) async {
     final String id = messageId.trim();
     if (id.isEmpty || !_pendingDeletes.add(id)) return;
-    await _preferences.setString(
-      pendingDeletesKey,
-      jsonEncode(_pendingDeletes.toList()),
+    final String payload = jsonEncode(_pendingDeletes.toList());
+    await _enqueueWrite(
+      () => _preferences.setString(pendingDeletesKey, payload),
     );
   }
 
@@ -419,23 +446,19 @@ final class LocalSyncOutbox implements SyncOutbox {
     if (id.isEmpty) return;
     final bool removed = _pendingDeletes.remove(id);
     if (!removed) return;
-    await _preferences.setString(
-      pendingDeletesKey,
-      jsonEncode(_pendingDeletes.toList()),
+    final String payload = jsonEncode(_pendingDeletes.toList());
+    await _enqueueWrite(
+      () => _preferences.setString(pendingDeletesKey, payload),
     );
   }
 
   @override
   Future<void> saveDirtyState(GameState state) {
     _dirty = state;
-    // Dirty state yazımları seri kuyrukla korunur: sonraki yazım öncekini
+    // Kirli durum yazımı da ortak kuyruktan geçer: sonraki yazım öncekini
     // ezmez, kapatma anında da flush güvenli olur.
-    _dirtyWriteChain = _dirtyWriteChain.catchError((Object _) {}).then((
-      _,
-    ) async {
-      await _preferences.setString(dirtyKey, jsonEncode(state.toJson()));
-    });
-    return _dirtyWriteChain;
+    final String payload = jsonEncode(state.toJson());
+    return _enqueueWrite(() => _preferences.setString(dirtyKey, payload));
   }
 
   @override
@@ -444,42 +467,34 @@ final class LocalSyncOutbox implements SyncOutbox {
     // (saveDirtyState) tamamlanmasını bekle; aksi hâlde erken `Future.value()`
     // dönen çağıran, diskteki kirli taslağın silindiğini sanır.
     _dirty = null;
-    _dirtyWriteChain = _dirtyWriteChain.catchError((Object _) {}).then((
-      _,
-    ) async {
-      await _preferences.remove(dirtyKey);
-    });
-    return _dirtyWriteChain;
+    return _enqueueWrite(() => _preferences.remove(dirtyKey));
   }
 
   @override
-  Future<void> clear() async {
+  Future<void> clear() {
     _pending.clear();
     _synced.clear();
     _pushed.clear();
     _pushPending.clear();
     _pendingDeletes.clear();
     _dirty = null;
-    // Dirty yazımları tek kuyrukta serileştiği için silme de kuyruğa girer:
-    // bekleyen `saveDirtyState` bitmeden `remove(dirtyKey)` çalışmaz, böylece
-    // clear() sonrasında anahtar yeniden oluşmaz.
-    _dirtyWriteChain = _dirtyWriteChain.catchError((Object _) {}).then((
-      _,
-    ) async {
+    // Tüm silmeler tek kuyruğa girer: bekleyen `setString` yazımları bitmeden
+    // hiçbir `remove` çalışmaz, böylece clear() sonrasında anahtar yeniden
+    // oluşmaz (pendingDeletes dahil).
+    return _enqueueWrite(() async {
+      await _preferences.remove(pendingKey);
+      await _preferences.remove(syncedKey);
+      await _preferences.remove(pushedKey);
+      await _preferences.remove(pushPendingKey);
+      await _preferences.remove(pendingDeletesKey);
       await _preferences.remove(dirtyKey);
     });
-    await _preferences.remove(pendingKey);
-    await _preferences.remove(syncedKey);
-    await _preferences.remove(pushedKey);
-    await _preferences.remove(pushPendingKey);
-    await _preferences.remove(pendingDeletesKey);
-    await _dirtyWriteChain;
   }
 
-  Future<void> _persistPending() => _preferences.setString(
-    pendingKey,
-    jsonEncode(<Map<String, dynamic>>[
+  Future<void> _persistPending() {
+    final String payload = jsonEncode(<Map<String, dynamic>>[
       for (final ChatMessage message in _pending) message.toJson(),
-    ]),
-  );
+    ]);
+    return _enqueueWrite(() => _preferences.setString(pendingKey, payload));
+  }
 }

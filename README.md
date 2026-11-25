@@ -1,4 +1,4 @@
-# LevelUp Life ⚡ — Couple Edition v6.2 (Yusuf & Ceyda)
+# LevelUp Life ⚡ — Couple Edition v6.3 (Yusuf & Ceyda)
 
 Hayatını bir RPG'ye çeviren Flutter uygulaması — **iki kişilik** sürüm. Günlük
 görevlerini tamamla, XP kazan, seviye atla, 5 temel statını geliştir ve gün
@@ -34,6 +34,21 @@ bildirim alabilirsin.
 > `special:`) doğru sekmeye yönlendirilir; plan günü/sessiz saat değişimi
 > hatırlatıcıları yeniden zamanlar; outbox `clear()` yarışı ve gece yarısı
 > sessiz saat hesabı düzeltildi.
+>
+> **v6.3 Polish & kurtarma UI'ı:** `pgcrypto` fonksiyonları (`crypt`,
+> `gen_salt`, `gen_random_bytes`) Supabase'in `extensions` şemasından
+> çözülecek şekilde dört RPC `set search_path = public, extensions` ile
+> yeniden tanımlandı. `reclaim_couple_role` boş kurtarma kodunda bcrypt
+> çalıştırmaz ve sayaç artırmaz; 15 dakikalık kilit dolduğunda sayaç sıfırlanır
+> (yeni 5 deneme). Durum push'u sürerken gelen yerel değişiklik **trailing
+> coalesce** ile kesin olarak gönderilir; outbox'ta `pending`/`synced`/
+> `pushed`/`pushPending`/`pendingDeletes` yazımlarının tamamı tek seri kuyrukta
+> (`clear()` dahil) çalışır. Ayarlar → Bulut bölümüne **Oda Kurtarma Kodu**
+> kartı eklendi: tek tıkla kod üretme (tek seferlik diyalog + kopyala) ve
+> `role taken` sonrası otomatik açılan **Rolümü Geri Al** diyaloğu. Sohbette
+> bildirime dokununca mesaj en fazla 2 sayfa geriye yüklenir, `ensureVisible`
+> ile tam hizalanır ve kısa bir vurgu animasyonu gösterilir; bulunamazsa
+> "eski geçmişte veya silinmiş" bilgisi verilir.
 
 ## Özellikler
 
@@ -177,7 +192,8 @@ Bulut tamamen opsiyoneldir; **hiçbir şey yapılmazsa uygulama yerel çalışı
    üzerinden çalışır; iki cihaz da anonim oturum açar.)
 3. **SQL Editor** → önce `supabase/migrations/20261123000000_v6_security.sql`,
    sonra `supabase/migrations/20261125000000_v6_1_production_gold.sql`, sonra
-   `supabase/migrations/20261125120000_v6_2_hardening.sql` dosyalarının
+   `supabase/migrations/20261125120000_v6_2_hardening.sql`, en son
+   `supabase/migrations/20261125180000_v6_3_polish.sql` dosyalarının
    tamamını çalıştır. Bu migrasyonlar:
    - `couple_rooms`, `room_members`, `chat_messages` tablolarını + indeksleri,
    - `is_room_member()` / `member_role()` ve `join_couple_room()` fonksiyonlarını,
@@ -191,7 +207,10 @@ Bulut tamamen opsiyoneldir; **hiçbir şey yapılmazsa uygulama yerel çalışı
    - v6.2'de kurtarma sırrını `recovery_secret_hash` (bcrypt) olarak saklar,
      `issue_couple_recovery_secret` / `set_couple_recovery_secret` RPC'lerini
      ekler, `reclaim_couple_role`'a kalıcı deneme kilidi getirir ve
-     `push_deliveries.message_id` FK'sini kaldırır.
+     `push_deliveries.message_id` FK'sini kaldırır,
+   - v6.3'te dört RPC'yi `set search_path = public, extensions` ile yeniden
+     tanımlar (Supabase'de `pgcrypto` `extensions` şemasındadır), boş kurtarma
+     kodunda sayaç artırmaz ve süresi dolmuş kilidi sıfırlar.
    Alternatif: `supabase db push` / `supabase migration up`.
 4. Supabase → **Project Settings → API**'den **Project URL** ve **anon/publishable**
    anahtarını al.
@@ -307,6 +326,40 @@ Tamamlananlar:
 - **Tanı:** Ayarlar → Bildirim & Senkron Sağlık Paneli (izin, OneSignal
   identity, oda üyeliği, outbox, karşı tarafa test push).
 
+## v6.3 kapsamı
+
+Tamamlananlar:
+
+- **`pgcrypto` şeması:** `join_couple_room`, `issue_couple_recovery_secret`,
+  `set_couple_recovery_secret` ve `reclaim_couple_role` artık
+  `set search_path = public, extensions` kullanır; canlıda `crypt` /
+  `gen_salt` / `gen_random_bytes` "does not exist" hatası veremez. Migration
+  başında fonksiyonların varlığını doğrulayan bir `do $$` guard var.
+- **Kurtarma kilidi ergonomisi:** boş/whitespace kod `22023` ile reddedilir
+  (bcrypt maliyeti ve sayaç artışı yok); 15 dakikalık kilit dolduğunda
+  `recovery_failed_attempts` sıfırlanır → kullanıcı yeniden 5 deneme alır.
+- **Trailing durum push'u:** `_pushStateNow` uçuştayken gelen yerel değişiklik
+  `_statePushQueued` ile işaretlenir; ilk istek bitince bir kez daha push
+  edilir. Uçuş sırasında yazılan dirty state artık **en güncel** durumdur.
+- **Tam outbox serileştirmesi:** `pending`, `synced`, `pushed`, `pushPending`,
+  `pendingDeletes` ve `dirty` yazımları/silmeleri tek `_writeChain`
+  kuyruğundan geçer; `enqueue`/`dequeueDelete` ile `clear()` arasında yarış
+  kalmaz. Değerler kuyruğa girmeden önce (çağrı anında) alınır.
+- **Tam alarm izni:** `refreshExactAlarmPermission()` artık "izin değişti mi"
+  döndürür; `resumed` anında değişim varsa `_planSignature` sıfırlanır ve
+  planlar `exact` / `inexact` moduyla yeniden zamanlanır.
+- **Sağlık paneli:** `_requestPermission` / `_sendTest` `try/finally` ile
+  kilitlenmez, izin sonrası `_refresh()` çağrılır; web'de test bildiriminin
+  **bu tarayıcıya değil partnerin telefonuna** gittiği açıkça yazar.
+- **Kurtarma UI'ı:** Ayarlar → Bulut/Oda bölümünde **Oda Kurtarma Kodu** kartı
+  (tek tıkla üret + tek seferlik kopyalanabilir diyalog) ve **Rolümü Geri Al**
+  diyaloğu. `role taken` hatasından sonra diyalog kendiliğinden açılır;
+  sonuç `ok | invalid | locked | notConfigured` olarak anlamlı mesaja çevrilir.
+- **Sohbet odağı:** hedef mesaj bellekte yoksa en fazla 2 sayfa sessiz
+  `_loadOlderSilently()` denenir, sonra oran tahmini + `Scrollable.ensureVisible`
+  (alignment 0.35) ve `_FocusPulse` vurgusu uygulanır; bulunamazsa kısa
+  snackbar gösterilir. Arama filtresi odağı engellemez (temizlenir).
+
 ## v6.2 kapsamı
 
 Tamamlananlar:
@@ -369,7 +422,11 @@ external_id, foreground çift bildirim filtresi, **v6.2 regresyonları**: ilk
 push sonrası `_statePushInFlight` kilidinin açılması, `clear()` /
 `saveDirtyState()` yarışı, Web'de Edge Function push'unun engellenmemesi, tüm
 bildirim payload'larının doğru sekmeye gitmesi, plan günü/sessiz saat imzası,
-gece yarısı sessiz saat hesabı ve katı PBKDF2 girdisi.
+gece yarısı sessiz saat hesabı ve katı PBKDF2 girdisi, **v6.3 regresyonları**:
+uçuştaki push sırasında gelen değişikliğin trailing push ile gönderilmesi,
+tam alarm izni değişiminde planların yeniden zamanlanması, `dequeueDelete`
+yazımı sürerken `clear()` çağrıldığında `pendingDeletes` kalıntısı kalmaması
+ve kurtarma sonuçlarının (`ok | invalid | locked`) doğru eşlenmesi.
 
 ## Lisans
 

@@ -1,7 +1,7 @@
 name: levelup_life
 description: "Yusuf & Ceyda · ortak hayatı seviye atlatan çift uygulaması."
 publish_to: 'none'
-version: 6.2.0+8
+version: 6.3.0+9
 
 environment:
   sdk: ^3.11.5

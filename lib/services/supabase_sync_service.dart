@@ -10,6 +10,66 @@ import 'app_settings.dart';
 /// Bağlantı durumu — ayarlar ekranındaki durum satırını besler.
 enum SyncStatus { disabled, connecting, connected, error }
 
+/// Kurtarma kodu üretim sonucu (v6.3).
+///
+/// Düz metin kod yalnızca [secret] içinde bulunur ve **yalnızca bir kez**
+/// döner; sunucuda bcrypt özeti kalır. [message] başarısızlık nedenini
+/// kullanıcıya göstermek içindir.
+final class RecoverySecretResult {
+  const RecoverySecretResult({this.secret, this.message = ''});
+
+  final String? secret;
+  final String message;
+
+  bool get isOk => (secret ?? '').trim().isNotEmpty;
+}
+
+/// `reclaim_couple_role` sonucu.
+enum RoleReclaimOutcome {
+  /// Rol devralındı; uygulama yeniden bağlanabilir.
+  ok,
+
+  /// Kod yanlış (sayaç arttı, 5'te kilit).
+  invalid,
+
+  /// 15 dakikalık kilit süresi dolmadı.
+  locked,
+
+  /// Odada kurtarma sırrı tanımlı değil (`LR002`).
+  notConfigured,
+
+  /// Boş kod / geçersiz oda kodu gibi istemci hatası.
+  invalidInput,
+
+  /// Ağ, oturum veya beklenmeyen hata.
+  failed,
+}
+
+final class RoleReclaimResult {
+  const RoleReclaimResult(this.outcome, {this.message = ''});
+
+  final RoleReclaimOutcome outcome;
+  final String message;
+
+  bool get isOk => outcome == RoleReclaimOutcome.ok;
+
+  /// Kullanıcıya gösterilecek hazır metin (RPC'den gelen mesaj varsa o).
+  String get displayMessage {
+    if (message.trim().isNotEmpty) return message;
+    return switch (outcome) {
+      RoleReclaimOutcome.ok => 'Rol geri alındı.',
+      RoleReclaimOutcome.invalid => 'Kurtarma kodu hatalı.',
+      RoleReclaimOutcome.locked =>
+        'Çok fazla hatalı deneme · 15 dakika sonra tekrar dene.',
+      RoleReclaimOutcome.notConfigured =>
+        'Bu odada kurtarma kodu tanımlı değil.',
+      RoleReclaimOutcome.invalidInput => 'Kurtarma kodu boş olamaz.',
+      RoleReclaimOutcome.failed =>
+        'Rol geri alınamadı · bağlantıyı kontrol et.',
+    };
+  }
+}
+
 /// Supabase bağlantı yapılandırması (oda kodu + cihaz rolü).
 final class SyncConfig {
   const SyncConfig({
@@ -148,6 +208,8 @@ final class SupabaseSyncService implements CloudSyncBackend {
   static const String markReadRpc = 'mark_messages_read';
   static const String toggleReactionRpc = 'toggle_message_reaction';
   static const String touchMemberRpc = 'touch_room_member';
+  static const String issueRecoverySecretRpc = 'issue_couple_recovery_secret';
+  static const String reclaimRoleRpc = 'reclaim_couple_role';
   static const int signedUrlSeconds = 7 * 24 * 60 * 60;
 
   /// Ayarlar → "SQL şemasını kopyala" düğmesinin içeriği.
@@ -195,6 +257,10 @@ alter publication supabase_realtime add table public.couple_rooms;
   SupabaseClient? _client;
   RealtimeChannel? _channel;
   SyncConfig? _config;
+
+  /// En son denenen yapılandırma; kurtarma RPC'leri bağlantı başarısız olsa da
+  /// (`role taken`) aynı istemci/oturum üzerinden çalışabilsin diye tutulur.
+  SyncConfig? _lastConfig;
   bool _connecting = false;
   DateTime? _lastRemoteStateAt;
 
@@ -249,6 +315,9 @@ alter publication supabase_realtime add table public.couple_rooms;
     // Kilidi `disconnect()` ÖNCESİNDE al: iki eşzamanlı configure birbirinin
     // kanalını yarı yolda kapatmasın.
     _connecting = true;
+    // Kurtarma RPC'leri (`issue…` / `reclaim…`) bağlantı kurulamasa bile aynı
+    // URL/anahtar + anonim oturum üzerinden çalışsın.
+    _lastConfig = config;
     callbacks.onStatusChanged(SyncStatus.connecting, 'Bağlanıyor…');
     try {
       await disconnect();
@@ -746,6 +815,157 @@ alter publication supabase_realtime add table public.couple_rooms;
     } catch (_) {
       return false;
     }
+  }
+
+  /// Kurtarma RPC'leri için istemci.
+  Future<SupabaseClient?> _recoveryClient() async {
+    final SupabaseClient? connected = _client;
+    if (connected != null) return connected;
+    final SyncConfig? config = _lastConfig;
+    if (config == null) return null;
+    try {
+      final SupabaseClient client = await _ensureClient(config);
+      final Session? session = client.auth.currentSession;
+      if (session == null || session.isExpired) {
+        await client.auth.signInAnonymously();
+      }
+      return client;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Oda üyesi cihaz için yeni kurtarma kodu üretir.
+  ///
+  /// Düz metin kod yalnızca dönen sonuçta bulunur ve başka hiçbir yerde
+  /// saklanmaz; sunucuda bcrypt özeti kalır.
+  Future<RecoverySecretResult> issueRecoverySecret(String roomCode) async {
+    final String code = roomCode.trim();
+    if (code.isEmpty) {
+      return const RecoverySecretResult(message: 'Oda kodu boş olamaz.');
+    }
+    final SupabaseClient? client = await _recoveryClient();
+    if (client == null) {
+      return const RecoverySecretResult(
+        message: 'Önce Supabase bağlantısını kur ☁️',
+      );
+    }
+    try {
+      final Object? value = await client.rpc(
+        issueRecoverySecretRpc,
+        params: <String, dynamic>{'p_room_code': code},
+      );
+      final String secret = value?.toString().trim() ?? '';
+      if (secret.isEmpty) {
+        return const RecoverySecretResult(message: 'Kod üretilemedi.');
+      }
+      return RecoverySecretResult(
+        secret: secret,
+        message: 'Kurtarma kodu hazır.',
+      );
+    } on PostgrestException catch (error) {
+      return RecoverySecretResult(
+        message: _recoveryError(error, fallback: 'Kod üretilemedi.'),
+      );
+    } catch (_) {
+      return const RecoverySecretResult(
+        message: 'Kod üretilemedi · bağlantıyı kontrol et.',
+      );
+    }
+  }
+
+  /// Kurtarma koduyla rolü bu cihaza devreder.
+  ///
+  /// Sunucu `ok | invalid | locked` döner; `LR001` / `LR002` / `22023` hata
+  /// kodları da anlamlı sonuca eşlenir (dialog kullanıcıya doğru mesajı
+  /// gösterebilsin diye).
+  Future<RoleReclaimResult> reclaimRole({
+    required String roomCode,
+    required String role,
+    required String recoverySecret,
+  }) async {
+    final String code = roomCode.trim();
+    final String cleanRole = role.trim().toLowerCase();
+    final String secret = recoverySecret.trim();
+    if (code.isEmpty || cleanRole.isEmpty) {
+      return const RoleReclaimResult(
+        RoleReclaimOutcome.invalidInput,
+        message: 'Oda kodu ve rol gerekli.',
+      );
+    }
+    if (secret.isEmpty) {
+      return const RoleReclaimResult(RoleReclaimOutcome.invalidInput);
+    }
+    final SupabaseClient? client = await _recoveryClient();
+    if (client == null) {
+      return const RoleReclaimResult(
+        RoleReclaimOutcome.failed,
+        message: 'Önce Supabase bağlantısını kur ☁️',
+      );
+    }
+    try {
+      final Object? value = await client.rpc(
+        reclaimRoleRpc,
+        params: <String, dynamic>{
+          'p_room_code': code,
+          'p_role': cleanRole,
+          'p_recovery_secret': secret,
+        },
+      );
+      final String status = value?.toString().trim().toLowerCase() ?? '';
+      final RoleReclaimOutcome outcome = switch (status) {
+        'ok' => RoleReclaimOutcome.ok,
+        'invalid' => RoleReclaimOutcome.invalid,
+        'locked' => RoleReclaimOutcome.locked,
+        _ => RoleReclaimOutcome.failed,
+      };
+      return RoleReclaimResult(outcome);
+    } on PostgrestException catch (error) {
+      final RoleReclaimOutcome outcome = switch (_errorCode(error)) {
+        'LR001' => RoleReclaimOutcome.locked,
+        'LR002' => RoleReclaimOutcome.notConfigured,
+        '22023' => RoleReclaimOutcome.invalidInput,
+        _ => RoleReclaimOutcome.failed,
+      };
+      return RoleReclaimResult(
+        outcome,
+        message: outcome == RoleReclaimOutcome.failed
+            ? _recoveryError(error, fallback: 'Rol geri alınamadı.')
+            : '',
+      );
+    } catch (_) {
+      return const RoleReclaimResult(
+        RoleReclaimOutcome.failed,
+        message: 'Rol geri alınamadı · bağlantıyı kontrol et.',
+      );
+    }
+  }
+
+  static String _errorCode(PostgrestException error) =>
+      error.code?.trim().toUpperCase() ?? '';
+
+  static String _recoveryError(
+    PostgrestException error, {
+    required String fallback,
+  }) {
+    final String errCode = _errorCode(error);
+    final String text = error.message.toLowerCase();
+    if (errCode == '42501' || text.contains('not a room member')) {
+      return 'Bu cihaz oda üyesi değil · önce bağlan.';
+    }
+    if (errCode == 'P0002' || text.contains('room not found')) {
+      return 'Oda bulunamadı.';
+    }
+    if (errCode == 'LR001') {
+      return 'Çok fazla hatalı deneme · 15 dakika sonra tekrar dene.';
+    }
+    if (errCode == 'LR002') {
+      return 'Bu odada kurtarma kodu tanımlı değil.';
+    }
+    if (errCode == '22023') {
+      return 'Kurtarma kodu boş olamaz.';
+    }
+    return fallback;
   }
 
   void _handleMessageChange(

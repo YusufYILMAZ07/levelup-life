@@ -51,6 +51,17 @@ class AppServices extends ConsumerStatefulWidget {
               '${block.endMinutes}:${block.title}',
       ].join('|');
 
+  /// Testlerde tam alarm izni tazelemesini taklit etmek için (üretimde null).
+  @visibleForTesting
+  static Future<bool> Function()? debugExactAlarmRefresher;
+
+  /// `_syncSchedules` gerçekten bir yeniden zamanlama yaptığında artar.
+  ///
+  /// Widget testleri imza karşılaştırmasının (ve tam alarm değişiminde
+  /// sıfırlanmasının) gerçekten yeniden zamanlamaya yol açtığını böyle görür.
+  @visibleForTesting
+  static int debugScheduleSyncCount = 0;
+
   @override
   ConsumerState<AppServices> createState() => _AppServicesState();
 }
@@ -241,13 +252,34 @@ class _AppServicesState extends ConsumerState<AppServices>
     if (state == AppLifecycleState.resumed) {
       ref.read(pinLockProvider.notifier).onAppResumed();
       // Kullanıcı sistem ayarlarından tam alarm iznini verdiyse yeniden
-      // başlatmaya gerek kalmadan etkinleşsin (Android 14+).
-      unawaited(NotificationService.instance.refreshExactAlarmPermission());
+      // başlatmaya gerek kalmadan etkinleşsin (Android 14+). İzin değiştiyse
+      // plan hatırlatıcıları `exact` moduna, kaldırıldıysa `inexact` moduna
+      // anında geçer.
+      unawaited(_refreshExactAlarmScheduleMode());
       _syncSchedules(ref.read(gameProvider), ref.read(appSettingsProvider));
       unawaited(
         ref.read(cloudSyncProvider).configure(ref.read(appSettingsProvider)),
       );
     }
+  }
+
+  /// Tam alarm izni değişimini kontrol eder ve gerekiyorsa planları yeniler.
+  Future<void> _refreshExactAlarmScheduleMode() async {
+    final Future<bool> Function() refresher =
+        AppServices.debugExactAlarmRefresher ??
+        NotificationService.instance.refreshExactAlarmPermission;
+    bool changed;
+    try {
+      changed = await refresher();
+    } catch (_) {
+      // İzin sorgusu başarısız olsa bile diğer resume işleri devam eder.
+      return;
+    }
+    if (!changed || !mounted) return;
+    // İmza sıfırlanmazsa `_syncSchedules` "aynı" sanıp erken döner ve
+    // hatırlatıcılar eski `inexact` modunda kalırdı.
+    _planSignature = '';
+    _syncSchedules(ref.read(gameProvider), ref.read(appSettingsProvider));
   }
 
   void _handleNewMessages(
@@ -432,6 +464,7 @@ class _AppServicesState extends ConsumerState<AppServices>
     final String signature = AppServices.scheduleSignature(state, settings);
     if (signature == _planSignature || !_booted) return;
     _planSignature = signature;
+    AppServices.debugScheduleSyncCount++;
 
     if (settings.planReminders) {
       // Sessiz saate denk gelen hatırlatıcı planlanmaz (DND).

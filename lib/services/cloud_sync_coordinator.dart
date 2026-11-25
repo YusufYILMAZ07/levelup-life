@@ -137,6 +137,12 @@ final class CloudSyncCoordinator {
   Future<SyncOutbox>? _outboxFuture;
   Timer? _pushDebounce;
   Future<void>? _statePushInFlight;
+
+  /// Ağ isteği sürerken gelen yerel değişiklik işareti (trailing coalesce).
+  bool _statePushQueued = false;
+
+  /// Uçuştaki push'un kimliği; eski bir `whenComplete` yeni kilidi silmesin.
+  Object? _statePushToken;
   int _pushedRevision = 0;
   SyncConfig? _active;
 
@@ -311,19 +317,41 @@ final class CloudSyncCoordinator {
   /// `identical(_statePushInFlight, future)` ile sarmalanmamış `future`
   /// karşılaştırdığı için koşul hiçbir zaman doğru olmuyor ve kilit ilk push'tan
   /// sonra kalıcı olarak açık kalıyordu (sonraki tüm durum push'ları sessizce
-  /// yutuluyordu). Artık izlenen `Future` (`tracked`) hem alana yazılır hem de
-  /// `whenComplete` callback'inde karşılaştırılır.
+  /// yutuluyordu).
+  ///
+  /// v6.3 eklemesi — **trailing coalesce:** push sürerken gelen yerel değişiklik
+  /// `_statePushQueued` ile işaretlenir; istek bittiğinde bayrak sıfırlanır ve
+  /// tam olarak bir kez daha `_pushStateNow()` çalışır. Böylece ağ turu
+  /// sırasında yapılan son değişiklik sunucuya gitmeden kalmaz (debounce
+  /// penceresine denk gelip kaybolmaz).
   Future<void> _pushStateNow() {
     final Future<void>? inFlight = _statePushInFlight;
-    if (inFlight != null) return inFlight;
-    late final Future<void> tracked;
-    tracked = _pushStateNowLocked().whenComplete(() {
-      if (identical(_statePushInFlight, tracked)) {
-        _statePushInFlight = null;
-      }
-    });
+    if (inFlight != null) {
+      _statePushQueued = true;
+      return inFlight;
+    }
+    final Object token = Object();
+    _statePushToken = token;
+    final Future<void> tracked = _runStatePush(token);
     _statePushInFlight = tracked;
     return tracked;
+  }
+
+  Future<void> _runStatePush(Object token) async {
+    try {
+      await _pushStateNowLocked();
+    } catch (_) {
+      // Beklenmeyen hata kilidi kalıcı olarak kapatmasın; sonraki değişiklik
+      // yeni bir push planlar.
+    } finally {
+      if (identical(_statePushToken, token)) {
+        _statePushToken = null;
+        _statePushInFlight = null;
+      }
+    }
+    if (!_statePushQueued) return;
+    _statePushQueued = false;
+    await _pushStateNow();
   }
 
   Future<void> _pushStateNowLocked() async {
@@ -338,14 +366,16 @@ final class CloudSyncCoordinator {
     }
     final bool ok = await _service.pushState(state);
     // Push sırasında yeni yerel değişiklik geldiyse dirty state'i temizleme;
-    // aradaki değişiklik yeniden planlanır.
+    // aradaki değişiklik trailing push ile yeniden gönderilir.
     if (ok && controller.localRevision == targetRevision) {
       _pushedRevision = targetRevision;
       await outbox.clearDirtyState();
     } else {
-      await outbox.saveDirtyState(state);
+      // v6.3: gönderilen anlık görüntü değil, **en güncel** yerel durum diske
+      // yazılır; uygulama bu arada kapansa bile kaybolan değişiklik olmaz.
+      await outbox.saveDirtyState(_ref.read(gameProvider));
       if (controller.localRevision > targetRevision) {
-        _schedulePush();
+        _statePushQueued = true;
       }
     }
   }
@@ -620,6 +650,67 @@ final class CloudSyncCoordinator {
   /// Push 401/403 retry'ı öncesi oturum + oda üyeliğini tazeler.
   Future<bool> refreshSessionAndMembership() =>
       _service.refreshSessionAndMembership();
+
+  SupabaseSyncService? get _supabase {
+    final CloudSyncBackend service = _service;
+    return service is SupabaseSyncService ? service : null;
+  }
+
+  /// Oda üyesi cihaz için tek seferlik kurtarma kodu üretir.
+  ///
+  /// Düz metin kod yalnızca dönen sonuçta bulunur; sunucuda bcrypt özeti kalır.
+  Future<RecoverySecretResult> issueRecoverySecret(String roomCode) async {
+    final SupabaseSyncService? service = _supabase;
+    if (service == null) {
+      return const RecoverySecretResult(
+        message: 'Kurtarma kodu yalnızca Supabase bağlıyken üretilebilir.',
+      );
+    }
+    return service.issueRecoverySecret(roomCode);
+  }
+
+  /// Yeni cihazda `role taken` alındığında rolü kurtarma koduyla devralır.
+  ///
+  /// Başarılıysa bağlantı yeniden kurulur (`configure`), böylece kanal ve
+  /// üyelik tazelenir; sonuç yine çağırana döner.
+  Future<RoleReclaimResult> reclaimRole({
+    required String roomCode,
+    required String role,
+    required String recoverySecret,
+  }) async {
+    final SupabaseSyncService? service = _supabase;
+    if (service == null) {
+      return const RoleReclaimResult(
+        RoleReclaimOutcome.failed,
+        message: 'Kurtarma yalnızca Supabase bağlıyken çalışır.',
+      );
+    }
+    final RoleReclaimResult result = await service.reclaimRole(
+      roomCode: roomCode,
+      role: role,
+      recoverySecret: recoverySecret,
+    );
+    if (result.isOk) {
+      // Rol/oda ayarları formdaki güncel değerle eşitlensin; `configure`
+      // doğru rolle bağlanmalı (aksi hâlde eski rol 'role taken' verir).
+      final AppSettings current = _ref.read(appSettingsProvider);
+      final bool needsSave =
+          current.deviceRole != role ||
+          current.normalizedRoomCode != roomCode.trim().toUpperCase();
+      if (needsSave) {
+        _ref
+            .read(appSettingsProvider.notifier)
+            .saveCloudConfig(
+              url: current.supabaseUrl,
+              anonKey: current.supabaseAnonKey,
+              roomCode: roomCode,
+              deviceRole: role,
+            );
+      }
+      unawaited(configure(_ref.read(appSettingsProvider)));
+    }
+    return result;
+  }
 
   Future<void> _syncMemberHealth(AppSettings settings) async {
     if (!_service.isConnected) return;

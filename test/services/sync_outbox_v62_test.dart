@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -54,6 +55,41 @@ void main() {
     expect(prefs.getString(LocalSyncOutbox.dirtyKey), isNull);
     expect(outbox.dirtyState, isNull);
   });
+
+  test(
+    'dequeueDelete yazımı sürerken clear() pendingDeletes kalıntısı bırakmaz',
+    () async {
+      final SharedPreferences prefs = await freshPreferences();
+      final LocalSyncOutbox outbox = await LocalSyncOutbox.open();
+      await outbox.enqueueDelete('msg-1');
+      expect(outbox.pendingDeletes, <String>{'msg-1'});
+
+      // v6.3: tüm yazımlar tek seri kuyruktan geçtiği için yavaş bir
+      // `dequeueDelete` yazımı sürerken gelen `clear()` sıraya girer.
+      final Completer<void> gate = Completer<void>();
+      LocalSyncOutbox.debugWriteDelay = () => gate.future;
+      addTearDown(() => LocalSyncOutbox.debugWriteDelay = null);
+
+      final Future<void> dequeued = outbox.dequeueDelete('msg-1');
+      final Future<void> cleared = outbox.clear();
+      await Future<void>.delayed(Duration.zero);
+
+      // Kapı kapalıyken hiçbir yeni yazım diske inmedi: eski kayıt duruyor ama
+      // clear() kuyrukta bekliyor.
+      expect(prefs.getString(LocalSyncOutbox.pendingDeletesKey), isNotNull);
+
+      gate.complete();
+      await Future.wait(<Future<void>>[dequeued, cleared]);
+      await Future<void>.delayed(Duration.zero);
+
+      // Kuyruk boşaldıktan sonra hiçbir anahtar kalıntı bırakmamalı.
+      expect(prefs.getString(LocalSyncOutbox.pendingDeletesKey), isNull);
+      expect(outbox.pendingDeletes, isEmpty);
+
+      final LocalSyncOutbox reopened = await LocalSyncOutbox.open();
+      expect(reopened.pendingDeletes, isEmpty);
+    },
+  );
 
   test('dequeueDelete kimliği trim ederek eşleştirir', () async {
     final SharedPreferences prefs = await freshPreferences();
