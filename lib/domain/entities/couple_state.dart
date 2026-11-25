@@ -967,10 +967,7 @@ final class CoupleState {
       ...deletedMessageTombstones,
       id: at ?? DateTime.now(),
     };
-    return copyWith(
-      messages: next,
-      deletedMessageTombstones: tombstones,
-    );
+    return copyWith(messages: next, deletedMessageTombstones: tombstones);
   }
 
   /// Özel aşk notunu siler (metinle eşleşen tombstone yazar).
@@ -1330,9 +1327,10 @@ final class CoupleState {
     });
 
     final Map<String, DateTime> loveNoteTombstones = <String, DateTime>{};
-    JsonX.asMap(
-      json['deleted_love_notes'],
-    ).forEach((String key, dynamic value) {
+    JsonX.asMap(json['deleted_love_notes']).forEach((
+      String key,
+      dynamic value,
+    ) {
       final DateTime? at = JsonX.asDate(value);
       if (key.trim().isNotEmpty && at != null) loveNoteTombstones[key] = at;
     });

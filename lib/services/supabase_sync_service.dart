@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../application/game_state.dart';
@@ -33,11 +33,20 @@ final class SyncConfig {
 
   bool get isValid {
     final Uri? uri = Uri.tryParse(url);
-    return uri != null &&
-        (uri.scheme == 'https' || uri.scheme == 'http') &&
-        uri.host.isNotEmpty &&
-        anonKey.isNotEmpty &&
-        roomCode.isNotEmpty;
+    if (uri == null ||
+        uri.host.isEmpty ||
+        anonKey.isEmpty ||
+        roomCode.isEmpty) {
+      return false;
+    }
+    final bool isLocalHttp =
+        uri.scheme == 'http' &&
+        (uri.host == 'localhost' ||
+            uri.host == '127.0.0.1' ||
+            uri.host == '10.0.2.2');
+    // Üretimde yalnızca https; http sadece debug localhost için kabul edilir.
+    final bool schemeOk = uri.scheme == 'https' || (kDebugMode && isLocalHttp);
+    return schemeOk;
   }
 
   bool sameAs(SyncConfig other) =>
@@ -95,6 +104,23 @@ abstract interface class CloudSyncBackend {
     required String fileName,
     required String contentType,
   });
+
+  /// Alıcı partnerin okundu bilgisini RPC ile işaretler (o ana kadar).
+  Future<int> markMessagesRead(DateTime upTo);
+
+  /// Alıcı partnerin emoji tepkisini RPC ile değiştirir.
+  Future<bool> toggleMessageReaction(String messageId, String emoji);
+
+  /// Cihazın bildirim/senkron sağlığını `room_members` satırına yazar.
+  Future<void> updateMemberHealth({
+    required bool pushEnabled,
+    required int? quietStartMinute,
+    required int? quietEndMinute,
+    required int utcOffsetMinutes,
+  });
+
+  /// 401/403 sonrası oturumu ve oda üyeliğini tazeler.
+  Future<bool> refreshSessionAndMembership();
 }
 
 /// Yusuf & Ceyda'nın iki ayrı telefondan **canlı** senkronizasyonu (v6).
@@ -119,6 +145,9 @@ final class SupabaseSyncService implements CloudSyncBackend {
   static const String messagesTable = 'chat_messages';
   static const String membersTable = 'room_members';
   static const String joinRoomRpc = 'join_couple_room';
+  static const String markReadRpc = 'mark_messages_read';
+  static const String toggleReactionRpc = 'toggle_message_reaction';
+  static const String touchMemberRpc = 'touch_room_member';
   static const int signedUrlSeconds = 7 * 24 * 60 * 60;
 
   /// Ayarlar → "SQL şemasını kopyala" düğmesinin içeriği.
@@ -127,6 +156,8 @@ final class SupabaseSyncService implements CloudSyncBackend {
   /// panelde hızlı kurulum için özet niteliğindedir.
   static const String schemaSql = r'''
 -- v6 güvenli şema (tam sürüm: supabase/migrations/20261123000000_v6_security.sql)
+-- v6.1 için ayrıca: supabase/migrations/20261125000000_v6_1_production_gold.sql
+-- (rol kurtarma, okundu/tepki RPC'leri, push_deliveries idempotency, cihaz sağlığı)
 create table if not exists public.couple_rooms (
   room_code text primary key,
   state_json jsonb not null default '{}'::jsonb,
@@ -195,10 +226,7 @@ alter publication supabase_realtime add table public.couple_rooms;
       }
       _bootstrapped = false;
     }
-    await Supabase.initialize(
-      url: config.url,
-      publishableKey: config.anonKey,
-    );
+    await Supabase.initialize(url: config.url, publishableKey: config.anonKey);
     _bootstrapped = true;
     _bootstrappedUrl = config.url;
     _bootstrappedKey = config.anonKey;
@@ -209,21 +237,39 @@ alter publication supabase_realtime add table public.couple_rooms;
   @override
   Future<bool> connect(SyncConfig config) async {
     if (!config.isValid) {
-      callbacks.onStatusChanged(SyncStatus.disabled, 'Supabase bilgileri eksik.');
+      callbacks.onStatusChanged(
+        SyncStatus.disabled,
+        'Supabase bilgileri eksik.',
+      );
       return false;
     }
     if (_connecting) return false;
     if (_config?.sameAs(config) == true && isConnected) return true;
 
-    await disconnect();
+    // Kilidi `disconnect()` ÖNCESİNDE al: iki eşzamanlı configure birbirinin
+    // kanalını yarı yolda kapatmasın.
     _connecting = true;
     callbacks.onStatusChanged(SyncStatus.connecting, 'Bağlanıyor…');
     try {
+      await disconnect();
+
       final SupabaseClient client = await _ensureClient(config);
 
-      // 1) Anonymous auth — RLS'in dayandığı kimlik.
-      if (client.auth.currentSession == null) {
-        await client.auth.signInAnonymously();
+      // 1) Anonymous auth — RLS'in dayandığı kimlik. Süresi dolmuş oturum
+      //    yenilenir; yoksa yeni anonim oturum açılır.
+      final Session? session = client.auth.currentSession;
+      if (session == null || session.isExpired) {
+        if (session != null) {
+          try {
+            await client.auth.refreshSession();
+          } catch (_) {
+            // Refresh başarısızsa yeni anonim oturum.
+          }
+        }
+        if (client.auth.currentSession == null ||
+            client.auth.currentSession!.isExpired) {
+          await client.auth.signInAnonymously();
+        }
       }
 
       // 2) Odaya katıl (oda yoksa ilk üye oluşturur).
@@ -281,26 +327,54 @@ alter publication supabase_realtime add table public.couple_rooms;
             callbacks.onTypingChanged?.call(payload['typing'] == true);
           },
         );
-      channel.subscribe((RealtimeSubscribeStatus status, Object? error) async {
-        if (status != RealtimeSubscribeStatus.subscribed) {
+
+      // Abonelik sonucunu bekle; hata/zaman aşımında bağlantı kurulmaz.
+      final Completer<bool> subscribedCompleter = Completer<bool>();
+      channel.subscribe((RealtimeSubscribeStatus status, Object? error) {
+        if (status == RealtimeSubscribeStatus.subscribed) {
+          if (!subscribedCompleter.isCompleted) {
+            subscribedCompleter.complete(true);
+          }
+          return;
+        }
+        if (status == RealtimeSubscribeStatus.channelError ||
+            status == RealtimeSubscribeStatus.closed ||
+            status == RealtimeSubscribeStatus.timedOut) {
           if (identical(_channel, channel)) {
             callbacks.onStatusChanged(
               SyncStatus.error,
               'Bağlantı koptu · ${error ?? 'tekrar denenecek'}',
             );
           }
-          return;
+          if (!subscribedCompleter.isCompleted) {
+            subscribedCompleter.complete(false);
+          }
         }
-        callbacks.onStatusChanged(
-          SyncStatus.connected,
-          'Canlı · ${config.roomCode}',
-        );
-        await channel.track(<String, dynamic>{
-          'role': config.deviceRole,
-          'online_at': DateTime.now().toUtc().toIso8601String(),
-        });
-        await _initialSync(client, config);
       });
+
+      final bool subscribed = await subscribedCompleter.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => false,
+      );
+      if (!subscribed) {
+        try {
+          await client.removeChannel(channel);
+        } catch (_) {
+          // Kanal zaten kapanmış olabilir.
+        }
+        callbacks.onStatusChanged(SyncStatus.error, 'Kanal açılamadı.');
+        return false;
+      }
+
+      callbacks.onStatusChanged(
+        SyncStatus.connected,
+        'Canlı · ${config.roomCode}',
+      );
+      await channel.track(<String, dynamic>{
+        'role': config.deviceRole,
+        'online_at': DateTime.now().toUtc().toIso8601String(),
+      });
+      await _initialSync(client, config);
 
       _client = client;
       _channel = channel;
@@ -379,7 +453,10 @@ alter publication supabase_realtime add table public.couple_rooms;
       }
     }
     if (client != null) {
-      callbacks.onStatusChanged(SyncStatus.disabled, 'Bulut kapalı · yerel mod');
+      callbacks.onStatusChanged(
+        SyncStatus.disabled,
+        'Bulut kapalı · yerel mod',
+      );
     }
     _client = null;
     callbacks.onPresenceChanged?.call(false);
@@ -410,6 +487,9 @@ alter publication supabase_realtime add table public.couple_rooms;
     final SyncConfig? config = _config;
     if (client == null || config == null) return false;
     try {
+      // v6.1 öncesi şemada `read_at` / `reactions` kolonları yoktur. Yeni
+      // kolonlar RPC'ler tarafından yazılır; INSERT yalnızca v6 sözleşmesini
+      // kullanır, böylece migration gecikse bile mesaj akışı bozulmaz.
       await client.from(messagesTable).upsert(<String, dynamic>{
         'id': message.id,
         'room_code': config.roomCode,
@@ -477,16 +557,18 @@ alter publication supabase_realtime add table public.couple_rooms;
     if (client == null || config == null) return const <ChatMessage>[];
     try {
       final int safeLimit = limit.clamp(1, 500);
+      // `*` eski şemada da çalışır; yeni `read_at` / `reactions` kolonları
+      // varsa aşağıda payload ile birleştirilir.
       final List<dynamic> rows = before == null
           ? await client
                 .from(messagesTable)
-                .select('payload, created_at')
+                .select('*')
                 .eq('room_code', config.roomCode)
                 .order('created_at', ascending: false)
                 .limit(safeLimit)
           : await client
                 .from(messagesTable)
-                .select('payload, created_at')
+                .select('*')
                 .eq('room_code', config.roomCode)
                 .lt('created_at', before.toUtc().toIso8601String())
                 .order('created_at', ascending: false)
@@ -498,6 +580,11 @@ alter publication supabase_realtime add table public.couple_rooms;
         if (raw is! Map) continue;
         final Map<String, dynamic> json = Map<String, dynamic>.from(raw);
         json['created_at'] ??= row['created_at'];
+        if (row['read_at'] != null) json['is_read'] = true;
+        final Object? reactions = row['reactions'];
+        if (reactions is Map && reactions.isNotEmpty) {
+          json['reactions'] = reactions;
+        }
         try {
           final ChatMessage message = ChatMessage.fromJson(json);
           if (message.id.trim().isNotEmpty) messages.add(message);
@@ -567,6 +654,100 @@ alter publication supabase_realtime add table public.couple_rooms;
     }
   }
 
+  /// Alıcı partnerin okundu bilgisini yalnızca güvenli RPC üzerinden yazar.
+  @override
+  Future<int> markMessagesRead(DateTime upTo) async {
+    final SupabaseClient? client = _client;
+    final SyncConfig? config = _config;
+    if (client == null || config == null) return 0;
+    try {
+      final Object? count = await client.rpc(
+        markReadRpc,
+        params: <String, dynamic>{
+          'p_room_code': config.roomCode,
+          'p_up_to': upTo.toUtc().toIso8601String(),
+        },
+      );
+      return count is num ? count.toInt() : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Emoji tepkisini RPC ile değiştirir; doğrudan satır güncellemesi yapmaz.
+  @override
+  Future<bool> toggleMessageReaction(String messageId, String emoji) async {
+    final SupabaseClient? client = _client;
+    final SyncConfig? config = _config;
+    if (client == null || config == null) return false;
+    if (messageId.trim().isEmpty || emoji.trim().isEmpty) return false;
+    try {
+      await client.rpc(
+        toggleReactionRpc,
+        params: <String, dynamic>{
+          'p_room_code': config.roomCode,
+          'p_message_id': messageId.trim(),
+          'p_emoji': emoji.trim(),
+        },
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Cihazın `push_enabled`, sessiz saat ve UTC offset bilgisini üye satırına
+  /// yazar. Sunucu tarafı sessiz saat kontrolü bu alanları kullanır.
+  @override
+  Future<void> updateMemberHealth({
+    required bool pushEnabled,
+    required int? quietStartMinute,
+    required int? quietEndMinute,
+    required int utcOffsetMinutes,
+  }) async {
+    final SupabaseClient? client = _client;
+    final SyncConfig? config = _config;
+    if (client == null || config == null) return;
+    try {
+      await client.rpc(
+        touchMemberRpc,
+        params: <String, dynamic>{
+          'p_room_code': config.roomCode,
+          'p_push_enabled': pushEnabled,
+          'p_quiet_start_minute': quietStartMinute?.clamp(0, 1439),
+          'p_quiet_end_minute': quietEndMinute?.clamp(0, 1439),
+          'p_utc_offset_minutes': utcOffsetMinutes.clamp(-840, 840),
+        },
+      );
+    } catch (_) {
+      // Eski migration çalıştırılmamış olabilir; push akışı devam eder.
+    }
+  }
+
+  /// 401/403 sonrası token'ı yeniler ve oda üyeliğini yeniden doğrular.
+  @override
+  Future<bool> refreshSessionAndMembership() async {
+    final SupabaseClient? client = _client;
+    final SyncConfig? config = _config;
+    if (client == null || config == null) return false;
+    try {
+      await client.auth.refreshSession();
+      if (client.auth.currentSession == null) {
+        await client.auth.signInAnonymously();
+      }
+      await client.rpc(
+        joinRoomRpc,
+        params: <String, dynamic>{
+          'p_room_code': config.roomCode,
+          'p_role': config.deviceRole,
+        },
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   void _handleMessageChange(
     PostgresChangeEvent event,
     PostgresChangePayload payload,
@@ -591,9 +772,13 @@ alter publication supabase_realtime add table public.couple_rooms;
     final Object? raw = record['payload'];
     if (raw is! Map) return;
     try {
-      final ChatMessage message = ChatMessage.fromJson(
-        Map<String, dynamic>.from(raw),
-      );
+      final Map<String, dynamic> json = Map<String, dynamic>.from(raw);
+      if (record['read_at'] != null) json['is_read'] = true;
+      final Object? reactions = record['reactions'];
+      if (reactions is Map && reactions.isNotEmpty) {
+        json['reactions'] = reactions;
+      }
+      final ChatMessage message = ChatMessage.fromJson(json);
       if (message.id.trim().isEmpty) return;
       if (event == PostgresChangeEvent.update) {
         callbacks.onRemoteMessageUpdate(message);
@@ -624,7 +809,9 @@ alter publication supabase_realtime add table public.couple_rooms;
     final Object? raw = record['state_json'];
     if (raw is! Map) return;
     try {
-      callbacks.onRemoteState(GameState.fromJson(Map<String, dynamic>.from(raw)));
+      callbacks.onRemoteState(
+        GameState.fromJson(Map<String, dynamic>.from(raw)),
+      );
     } catch (_) {
       // Şema sürümü uyuşmazsa yerel durum korunur.
     }

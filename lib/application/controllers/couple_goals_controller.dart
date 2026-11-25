@@ -22,9 +22,7 @@ final class CoupleGoalsController {
   void setLiveStatus(LiveStatus status, {String? partnerId}) {
     final String id = partnerId ?? _state.activePartnerId;
     if (_state.couple.liveStatusOf(id) == status) return;
-    _game.commit(
-      _state.withCouple(_state.couple.withLiveStatus(id, status)),
-    );
+    _game.commit(_state.withCouple(_state.couple.withLiveStatus(id, status)));
   }
 
   // ── Bucket list (ortak hedefler) ─────────────────────────────────────────

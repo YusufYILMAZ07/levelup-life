@@ -26,10 +26,9 @@ void main() {
     test('addQuest isCustom işaretler ve refreshQuests silmez', () {
       final Map<String, dynamic> json = state().quests.first.toJson()
         ..['id'] = 'custom-1';
-      final Quest custom = Quest.fromJson(json).copyWith(
-        title: 'Kendi görevim',
-        isCustom: true,
-      );
+      final Quest custom = Quest.fromJson(
+        json,
+      ).copyWith(title: 'Kendi görevim', isCustom: true);
       expect(controller().addQuest(custom), isTrue);
       expect(
         state().quests.firstWhere((Quest q) => q.id == 'custom-1').isCustom,
@@ -38,26 +37,21 @@ void main() {
 
       controller().refreshQuests();
 
-      final Quest? kept = state().quests
-          .cast<Quest?>()
-          .firstWhere((Quest? q) => q?.id == 'custom-1', orElse: () => null);
+      final Quest? kept = state().quests.cast<Quest?>().firstWhere(
+        (Quest? q) => q?.id == 'custom-1',
+        orElse: () => null,
+      );
       expect(kept, isNotNull);
       expect(kept!.isCustom, isTrue);
       expect(kept.title, 'Kendi görevim');
       // Günlük görevler yeniden üretildi.
-      expect(
-        state().quests.where((Quest q) => !q.isCustom),
-        isNotEmpty,
-      );
+      expect(state().quests.where((Quest q) => !q.isCustom), isNotEmpty);
     });
 
     test('boş veya aşırı uzun başlıklı özel görev reddedilir', () {
       final Quest base = state().quests.first;
       expect(controller().addQuest(base.copyWith(title: '   ')), isFalse);
-      expect(
-        controller().addQuest(base.copyWith(title: 'a' * 200)),
-        isFalse,
-      );
+      expect(controller().addQuest(base.copyWith(title: 'a' * 200)), isFalse);
     });
   });
 
@@ -245,7 +239,9 @@ void main() {
       expect(current.text, 'Düzenlendi');
       expect(current.isEdited, isTrue);
       expect(
-        GameState.fromJson(state().toJson()).couple.messageById(message.id)!.text,
+        GameState.fromJson(
+          state().toJson(),
+        ).couple.messageById(message.id)!.text,
         'Düzenlendi',
       );
     });

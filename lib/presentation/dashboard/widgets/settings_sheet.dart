@@ -57,8 +57,11 @@ class SettingsSheet extends ConsumerWidget {
       ),
     );
     if (confirmed != true || !context.mounted) return;
+    // Notifier'ı pop'tan **önce** yakala: sayfa kapandıktan sonra `ref`/context
+    // üzerinden okuma yapmak geçersiz olabilir.
+    final GameController controller = ref.read(gameProvider.notifier);
     Navigator.of(context).pop();
-    await ref.read(gameProvider.notifier).resetJourney();
+    await controller.resetJourney();
   }
 
   Future<void> _confirmRestartCouple(
@@ -86,8 +89,9 @@ class SettingsSheet extends ConsumerWidget {
       ),
     );
     if (confirmed != true || !context.mounted) return;
+    final GameController controller = ref.read(gameProvider.notifier);
     Navigator.of(context).pop();
-    await ref.read(gameProvider.notifier).restartCoupleJourney();
+    await controller.restartCoupleJourney();
   }
 
   @override
@@ -395,9 +399,7 @@ class _DeviceIdentitySettings extends ConsumerWidget {
 
   void _choose(WidgetRef ref, String partnerId) {
     ref.read(appSettingsProvider.notifier).configureDeviceOwner(partnerId);
-    ref
-        .read(gameProvider.notifier)
-        .enforceDeviceOwner(ref.read(appSettingsProvider));
+    ref.read(gameProvider.notifier).enforceDeviceOwner();
   }
 
   @override
@@ -526,8 +528,37 @@ class _ProfilePhotoSettings extends ConsumerWidget {
     String partnerId,
   ) async {
     try {
-      final String? source = await MediaService().pickAvatar();
-      if (source == null) return;
+      final AppSettings settings = ref.read(appSettingsProvider);
+      final PickedMedia? picked = await MediaService().pickAvatar(
+        allowCloudUpload: settings.isCloudConfigured,
+      );
+      if (picked == null) return;
+      String source = picked.source;
+      final Uint8List? bytes = picked.bytes;
+      if (bytes != null &&
+          (source.isEmpty || source.startsWith('data:')) &&
+          settings.isCloudConfigured) {
+        // Web: 250 KB üstü avatar base64 gömülmez; Supabase Storage'a yüklenir.
+        final String? uploaded = await ref
+            .read(cloudSyncProvider)
+            .uploadMediaBytes(
+              bytes: bytes,
+              fileName: picked.uploadFileName,
+              contentType: picked.contentType,
+            );
+        if (uploaded != null) source = uploaded;
+      }
+      if (!context.mounted) return;
+      if (source.trim().isEmpty) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('☁️ Fotoğraf yüklenemedi · bağlantıyı kontrol et.'),
+            ),
+          );
+        return;
+      }
       ref.read(appSettingsProvider.notifier).setAvatar(partnerId, source);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context)
@@ -836,6 +867,8 @@ class _NotificationSettings extends ConsumerWidget {
         ),
         const SizedBox(height: AppSpacing.lg),
         const _PushSettings(),
+        const SizedBox(height: AppSpacing.lg),
+        const _NotificationHealthPanel(),
       ],
     );
   }
@@ -876,9 +909,7 @@ class _PushSettingsState extends ConsumerState<_PushSettings> {
 
   Future<void> _save() async {
     setState(() => _busy = true);
-    ref
-        .read(appSettingsProvider.notifier)
-        .savePushConfig(appId: _appId.text);
+    ref.read(appSettingsProvider.notifier).savePushConfig(appId: _appId.text);
     final bool ok = await PushService.instance.initialize(
       ref.read(appSettingsProvider),
     );
@@ -960,6 +991,267 @@ class _PushSettingsState extends ConsumerState<_PushSettings> {
   }
 }
 
+/// Tek ekranda bildirim & senkron sağlığını gösteren üretim paneli.
+class _NotificationHealthPanel extends ConsumerStatefulWidget {
+  const _NotificationHealthPanel();
+
+  @override
+  ConsumerState<_NotificationHealthPanel> createState() =>
+      _NotificationHealthPanelState();
+}
+
+class _NotificationHealthPanelState
+    extends ConsumerState<_NotificationHealthPanel> {
+  bool _busy = false;
+  bool _testBusy = false;
+  bool _localPermission = false;
+  PushDiagnostics? _diagnostics;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
+  }
+
+  Future<void> _refresh() async {
+    if (!mounted) return;
+    setState(() => _busy = true);
+    final AppSettings settings = ref.read(appSettingsProvider);
+    // Widget testlerinde / platform kanalı yokken spinner sonsuza kadar
+    // dönmesin: her tanı çağrısı kısa timeout ile güvenli varsayılana düşer.
+    final bool local = await NotificationService.instance
+        .hasPermission()
+        .timeout(const Duration(seconds: 2), onTimeout: () => false);
+    final PushDiagnostics diagnostics = await PushService.instance
+        .refreshDiagnostics(settings)
+        .timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => PushDiagnostics(
+            initialized: false,
+            permissionGranted: false,
+            externalId: PushService.externalIdFor(settings),
+            expectedExternalId: PushService.externalIdFor(settings),
+            subscriptionId: null,
+            lastError: 'Tanı zaman aşımı',
+          ),
+        );
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _localPermission = local;
+      _diagnostics = diagnostics;
+    });
+  }
+
+  Future<void> _requestPermission() async {
+    setState(() => _busy = true);
+    await NotificationService.instance.requestPermissions();
+    await PushService.instance.initialize(ref.read(appSettingsProvider));
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await _refresh();
+  }
+
+  Future<void> _sendTest() async {
+    setState(() => _testBusy = true);
+    final PushResult result = await PushService.instance.sendTest(
+      ref.read(appSettingsProvider),
+    );
+    ref.read(pushHealthProvider.notifier).set(result);
+    if (!mounted) return;
+    setState(() => _testBusy = false);
+    await _refresh();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(result.message),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    final SyncStatusInfo sync = ref.watch(syncStatusProvider);
+    final CloudSyncCoordinator cloud = ref.watch(cloudSyncProvider);
+    final int pending = cloud.pendingMessageCount;
+    final int pendingDeletes = cloud.pendingDeleteCount;
+    final PushDiagnostics? diagnostics = _diagnostics;
+    final PushResult? lastPush = ref.watch(pushHealthProvider);
+    final String identity =
+        diagnostics?.externalId ??
+        PushService.externalIdFor(settings) ??
+        'Oda kodu bekleniyor';
+    final bool identityOk = diagnostics?.identityMatches ?? false;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        SectionHeader(
+          title: '🩺 Bildirim & Senkron Sağlık Paneli',
+          subtitle:
+              'Yerel izin, OneSignal kimliği, Supabase üyeliği ve çevrimdışı '
+              'kuyruğu tek bakışta.',
+          trailing: IconButton(
+            key: const Key('health-refresh'),
+            tooltip: 'Yenile',
+            onPressed: _busy ? null : _refresh,
+            icon: _busy
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded, size: 19),
+          ),
+        ),
+        _HealthRow(
+          key: const Key('health-local-permission'),
+          ok: _localPermission,
+          label: 'Yerel bildirim izni',
+          value: _localPermission ? 'Açık' : 'Kapalı · izin ver',
+          action: _localPermission
+              ? null
+              : TextButton(
+                  key: const Key('health-request-permission'),
+                  onPressed: _busy ? null : _requestPermission,
+                  child: const Text('Aç'),
+                ),
+        ),
+        _HealthRow(
+          key: const Key('health-onesignal'),
+          ok: identityOk && (diagnostics?.permissionGranted ?? false),
+          label: 'OneSignal aboneliği',
+          value: diagnostics == null
+              ? 'Kontrol ediliyor…'
+              : identityOk
+              ? identity
+              : 'Eşleşmiyor · $identity',
+        ),
+        _HealthRow(
+          key: const Key('health-membership'),
+          ok: sync.isConnected,
+          label: 'Supabase Auth + oda üyeliği',
+          value: sync.isConnected
+              // Oda kodu tam gösterilmez (ekran görüntüsü/paylaşım sızıntısı).
+              ? 'Üye · ${settings.maskedRoomCode}'
+              : sync.message,
+        ),
+        _HealthRow(
+          key: const Key('health-outbox'),
+          ok: pending == 0 && pendingDeletes == 0,
+          label: 'Bekleyen çevrimdışı mesaj / silme',
+          value: pending == 0 && pendingDeletes == 0
+              ? 'Yok · her şey senkron'
+              : '$pending mesaj · $pendingDeletes silme',
+        ),
+        if (lastPush != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.xs),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            decoration: BoxDecoration(
+              color: (lastPush.ok ? AppColors.success : AppColors.danger)
+                  .withValues(alpha: 0.08),
+              borderRadius: AppRadii.smAll,
+            ),
+            child: Text(
+              lastPush.ok
+                  ? '${lastPush.message}'
+                        '${lastPush.onesignalStatus == null ? '' : ' · OneSignal ${lastPush.onesignalStatus}'}'
+                  : lastPush.message,
+              style: AppTypography.caption.copyWith(
+                color: lastPush.ok ? AppColors.success : AppColors.danger,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.sm),
+        FilledButton.icon(
+          key: const Key('health-send-test'),
+          onPressed: _testBusy ? null : _sendTest,
+          icon: const Icon(Icons.send_rounded, size: 17),
+          label: Text(
+            _testBusy
+                ? 'Test gönderiliyor…'
+                : '📨 Karşı Tarafa Test Bildirimi Gönder',
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Test yanıtı Edge Function HTTP kodunu ve OneSignal teslim '
+          'durumunu gösterir. 401/403’te oturum bir kez otomatik yenilenir.',
+          style: AppTypography.caption.copyWith(
+            color: AppColors.textTertiary,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HealthRow extends StatelessWidget {
+  const _HealthRow({
+    required this.ok,
+    required this.label,
+    required this.value,
+    this.action,
+    super.key,
+  });
+
+  final bool ok;
+  final String label;
+  final String value;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = ok ? AppColors.success : AppColors.danger;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            ok ? Icons.check_circle_rounded : Icons.error_rounded,
+            size: 17,
+            color: color,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  label,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: color,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ?action,
+        ],
+      ),
+    );
+  }
+}
+
 class _ToggleTile extends StatelessWidget {
   const _ToggleTile({
     required this.icon,
@@ -1014,9 +1306,7 @@ class _PrivacySettings extends ConsumerWidget {
             SimpleDialogOption(
               key: Key('pin-grace-$seconds'),
               onPressed: () => Navigator.of(dialogContext).pop(seconds),
-              child: Text(
-                seconds == 0 ? 'Hemen kilitle' : '$seconds saniye',
-              ),
+              child: Text(seconds == 0 ? 'Hemen kilitle' : '$seconds saniye'),
             ),
         ],
       ),
@@ -1098,16 +1388,22 @@ class _PrivacySettings extends ConsumerWidget {
     );
     controller.dispose();
     if (pin == null || !context.mounted) return;
-    if (ref.read(appSettingsProvider.notifier).setPinCode(pin)) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('PIN güncellendi 🔒'),
-            duration: Duration(seconds: 2),
+    final bool saved = await ref
+        .read(appSettingsProvider.notifier)
+        .setPinCodeAsync(pin);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            saved
+                ? 'PIN güncellendi 🔒 · PBKDF2 ile korunuyor'
+                : 'PIN kaydedilemedi · tekrar dene',
           ),
-        );
-    }
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   @override
@@ -1167,7 +1463,7 @@ class _PrivacySettings extends ConsumerWidget {
           ),
           subtitle: Text(
             settings.hasPin
-                ? 'Şu an özel PIN · •••• · yalnızca hash saklanır'
+                ? 'Şu an özel PIN · •••• · yalnızca ${settings.needsPinMigration ? 'SHA-256 (girişte PBKDF2’ye yükseltilir)' : 'PBKDF2'} özeti saklanır'
                 : 'Şu an varsayılan PIN · 3101',
             style: AppTypography.caption.copyWith(
               color: AppColors.textTertiary,
@@ -1206,9 +1502,7 @@ class _PrivacySettings extends ConsumerWidget {
           ),
           value: settings.biometricEnabled,
           onChanged: (bool value) async {
-            ref
-                .read(appSettingsProvider.notifier)
-                .setBiometricEnabled(value);
+            ref.read(appSettingsProvider.notifier).setBiometricEnabled(value);
             if (!value) return;
             final bool available = await ref
                 .read(biometricServiceProvider)
@@ -1504,9 +1798,10 @@ class _CloudSyncSettingsState extends ConsumerState<_CloudSyncSettings> {
         ),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          '30 saniyelik kurulum: Supabase → SQL Editor → SQL’i yapıştır. '
-          'Sonra buraya URL + anon key + oda kodunu gir; iki telefon da aynı '
-          'odaya bağlanınca mesajlar anında akar.',
+          'Kurulum: Supabase → SQL Editor → önce v6 güvenlik, sonra v6.1 '
+          'sohbet/push migration’ını çalıştır. Ardından buraya URL + anon key '
+          '+ oda kodunu gir; iki telefon aynı odaya bağlanınca mesajlar anında '
+          'akar.',
           style: AppTypography.caption.copyWith(
             color: AppColors.textTertiary,
             height: 1.4,
@@ -1702,7 +1997,7 @@ class _BackupSettings extends ConsumerWidget {
       builder: (BuildContext dialogContext) => AlertDialog(
         title: const Text('Yedek doğrulandı ✅'),
         content: Text(
-          'Tarih: ${restore.exportedAt.toLocal()}\n'
+          'Tarih: ${restore.exportedAt?.toLocal() ?? 'bilinmiyor'}\n'
           'Sürüm: v${restore.schemaVersion}\n'
           '${restore.state.partners.length} partner · '
           '${restore.state.couple.messages.length} mesaj\n\n'
@@ -1760,4 +2055,3 @@ class _BackupSettings extends ConsumerWidget {
     );
   }
 }
-

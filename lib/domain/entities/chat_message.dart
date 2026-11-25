@@ -132,12 +132,13 @@ final class ChatMessage {
   bool get isEdited => editedAt != null;
 
   /// Bu mesaja bırakılan toplam tepki sayısı.
-  int get reactionCount =>
-      reactions.values.fold<int>(0, (int sum, Set<String> ids) => sum + ids.length);
+  int get reactionCount => reactions.values.fold<int>(
+    0,
+    (int sum, Set<String> ids) => sum + ids.length,
+  );
 
   /// Belirli emojiyi bırakan partnerler.
-  Set<String> reactorsOf(String emoji) =>
-      reactions[emoji] ?? const <String>{};
+  Set<String> reactorsOf(String emoji) => reactions[emoji] ?? const <String>{};
 
   /// Medya alanının okunabilir adı (v4 API'si).
   String? get mediaPathOrUrl => photoDataOrUrl;

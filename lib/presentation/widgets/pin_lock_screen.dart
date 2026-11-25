@@ -57,9 +57,15 @@ class _PinLockScreenState extends ConsumerState<PinLockScreen> {
 
   Future<void> _tryBiometric() async {
     if (!ref.read(appSettingsProvider).biometricEnabled) return;
-    final BiometricResult result = await ref
-        .read(pinLockProvider.notifier)
-        .unlockWithBiometrics();
+    final PinLockController controller = ref.read(pinLockProvider.notifier);
+    if (controller.isLockedOut) {
+      setState(
+        () => _error =
+            'Bekleme süresi · ${controller.lockoutRemaining.inSeconds} sn',
+      );
+      return;
+    }
+    final BiometricResult result = await controller.unlockWithBiometrics();
     if (!mounted || result.isSuccess) return;
     final String? message = result.message;
     if (message != null) setState(() => _error = message);
@@ -78,16 +84,19 @@ class _PinLockScreenState extends ConsumerState<PinLockScreen> {
       return;
     }
     setState(() => _checking = true);
-    final bool ok = controller.unlockWithPin(_entered);
+    // PBKDF2 türetmesi arka isolate'te: kilit ekranı donmaz.
+    final bool ok = await controller.unlockWithPinAsync(_entered);
+    if (!mounted) return;
     if (ok) {
-      if (mounted) setState(() => _checking = false);
+      setState(() => _checking = false);
       return;
     }
     await Future<void>.delayed(const Duration(milliseconds: 260));
     if (!mounted) return;
     final bool lockedOut = controller.isLockedOut;
-    final int remaining =
-        PinAttemptPolicy.freeAttempts - controller.failedAttempts;
+    final int remaining = PinAttemptPolicy.remainingAttempts(
+      controller.failedAttempts,
+    );
     setState(() {
       _error = lockedOut
           ? 'Bekleme süresi · ${controller.lockoutRemaining.inSeconds} sn'

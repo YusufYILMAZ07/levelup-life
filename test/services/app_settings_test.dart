@@ -39,8 +39,9 @@ void main() {
 
   group('PIN ve güvenlik ayarları', () {
     test('JSON gidiş-dönüşü ayarları korur, hassas alanlar ayrılabilir', () {
-      final AppSettings settings =
-          const AppSettings().withPin('2580').copyWith(
+      final AppSettings settings = const AppSettings()
+          .withPin('2580')
+          .copyWith(
             messageNotifications: false,
             planReminders: false,
             dailyCheckinHour: 22,
@@ -105,7 +106,10 @@ void main() {
       expect(restored.hasPin, isTrue);
       expect(restored.verifyPin('2580'), isTrue);
       expect(restored.verifyPin('3101'), isFalse);
-      expect(restored.toJson(includeSecrets: false).containsKey('pin_code'), isFalse);
+      expect(
+        restored.toJson(includeSecrets: false).containsKey('pin_code'),
+        isFalse,
+      );
     });
 
     test('eksik PIN varsayılana döner', () {

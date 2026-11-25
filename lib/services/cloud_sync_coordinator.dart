@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/game_controller.dart';
@@ -8,8 +8,17 @@ import '../application/game_mutation.dart';
 import '../application/game_state.dart';
 import '../domain/entities/entities.dart';
 import 'app_settings.dart';
+import 'message_delivery_policy.dart';
+import 'push_service.dart';
 import 'supabase_sync_service.dart';
 import 'sync_outbox.dart';
+
+/// Testlerde sahte push gönderici enjekte etmek için.
+typedef ChatPushDispatcher =
+    Future<PushResult> Function({
+      required AppSettings settings,
+      required ChatMessage message,
+    });
 
 /// Ayarlar ekranında gösterilen canlı bağlantı durumu.
 final class SyncStatusInfo {
@@ -91,7 +100,10 @@ final class CloudSyncCoordinator {
     this._ref, {
     CloudSyncBackend? backend,
     SyncOutbox? outbox,
-  }) : _outbox = outbox {
+    ChatPushDispatcher? pushDispatcher,
+  }) : _outbox = outbox,
+       _pushDispatcher =
+           pushDispatcher ?? PushService.instance.sendChatMessage {
     _service =
         backend ??
         SupabaseSyncService(
@@ -111,43 +123,44 @@ final class CloudSyncCoordinator {
   final Ref _ref;
   late final CloudSyncBackend _service;
 
+  final ChatPushDispatcher _pushDispatcher;
+
   SyncOutbox? _outbox;
   final Set<String> _knownMessageIds = <String>{};
   final Set<String> _syncedIds = <String>{};
+  final Set<String> _pushedIds = <String>{};
   final Set<String> _pendingIds = <String>{};
+  final Set<String> _pushRequestedIds = <String>{};
+  final Set<String> _pushInFlight = <String>{};
   final Set<String> _knownTombstones = <String>{};
+  final Set<String> _pendingDeletes = <String>{};
+  Future<SyncOutbox>? _outboxFuture;
   Timer? _pushDebounce;
-  bool _applyingRemote = false;
-  bool _applyingHistory = false;
-  bool _remoteApplyPending = false;
-  bool _historyApplyPending = false;
+  Future<void>? _statePushInFlight;
   int _pushedRevision = 0;
   SyncConfig? _active;
 
   bool get isConnected => _service.isConnected;
 
-  /// Şu an karşı telefondan gelen bir durum uygulanıyor mu?
-  ///
-  /// Senkron pencere + bir sonraki state bildirimine kadar taşınan "pending"
-  /// bayrağı birlikte değerlendirilir. Böylece Riverpod dinleyicisi bir tick
-  /// gecikse bile uzak mesaj yerel bildirim/push üretmez.
-  bool get isApplyingRemote => _applyingRemote || _remoteApplyPending;
-
-  /// Toplu geçmiş çekiliyor mu?
-  bool get isApplyingHistory => _applyingHistory || _historyApplyPending;
-
   /// Bağlantı yokken gönderilen, sırada bekleyen mesaj sayısı.
   int get pendingMessageCount => _pendingIds.length;
 
-  Future<SyncOutbox> _ensureOutbox() async {
+  /// Bağlantı yokken silinen, sırada bekleyen mesaj kimliği sayısı.
+  int get pendingDeleteCount => _pendingDeletes.length;
+
+  Future<SyncOutbox> _ensureOutbox() {
     final SyncOutbox? existing = _outbox;
     if (existing != null) {
-      await existing.load();
-      return existing;
+      return existing.load().then((_) => existing);
     }
-    final LocalSyncOutbox opened = await LocalSyncOutbox.open();
-    _outbox = opened;
-    return opened;
+    final Future<SyncOutbox>? pending = _outboxFuture;
+    if (pending != null) return pending;
+    final Future<SyncOutbox> future = LocalSyncOutbox.open().then((opened) {
+      _outbox = opened;
+      return opened;
+    });
+    _outboxFuture = future;
+    return future;
   }
 
   Future<void> configure(AppSettings settings) async {
@@ -155,12 +168,20 @@ final class CloudSyncCoordinator {
     _syncedIds
       ..clear()
       ..addAll(outbox.syncedMessageIds);
+    _pushedIds
+      ..clear()
+      ..addAll(outbox.pushedMessageIds);
     _pendingIds
       ..clear()
       ..addAll(outbox.pendingMessages.map((ChatMessage message) => message.id));
+    _pendingDeletes
+      ..clear()
+      ..addAll(outbox.pendingDeletes);
 
     final SyncConfig config = SyncConfig.fromSettings(settings);
     if (!settings.isCloudConfigured) {
+      _pushDebounce?.cancel();
+      _pushDebounce = null;
       if (_active != null) {
         await _service.disconnect();
         _active = null;
@@ -172,13 +193,17 @@ final class CloudSyncCoordinator {
       return;
     }
     if (_active?.sameAs(config) == true && _service.isConnected) {
+      await _syncMemberHealth(settings);
       unawaited(_flushOutbox());
       return;
     }
 
-    _active = config;
     final bool ok = await _service.connect(config);
     if (!ok) return;
+    // `_active` yalnızca bağlantı kesinleşince atanır; başarısız deneme eski
+    // durumu bozmaz.
+    _active = config;
+    await _syncMemberHealth(settings);
     _knownMessageIds.addAll(
       _ref
           .read(gameProvider)
@@ -196,10 +221,6 @@ final class CloudSyncCoordinator {
 
   /// Yerel değişiklikleri buluta taşır (yeni mesajlar + tam durum).
   void onLocalStateChanged(GameState state) {
-    // AppServices bu bayrakları okuyup bildirim/push kararını verir; ardından
-    // bu metot çağrılır. Burada temizlemek güvenlidir.
-    _remoteApplyPending = false;
-    _historyApplyPending = false;
     final GameController controller = _ref.read(gameProvider.notifier);
     final MutationOrigin origin = controller.lastOrigin;
 
@@ -208,23 +229,26 @@ final class CloudSyncCoordinator {
       if (_pendingIds.contains(message.id)) continue;
       if (!_knownMessageIds.add(message.id)) continue;
       // Bulut hiç kurulmadıysa mesajları kuyruğa almayız; bağlantı kurulunca
-      // `_backfillLocalMessages` son 200 senkronize edilmemiş kaydı yükler.
+      // `_backfillLocalMessages` senkronize edilmemiş kayıtları yükler.
       if (_active == null) continue;
       unawaited(_sendOrQueue(message));
     }
 
-    // Yeni tombstone'ları buluta da yansıt: karşı cihaz gerçek zamanlı
-    // `delete` olayını alır (durum paketi de tombstone taşır).
+    // Yeni tombstone'lar: bağlıyken hemen, çevrimdışıyken kalıcı kuyruğa.
     for (final String id in state.couple.deletedMessageTombstones.keys) {
       if (!_knownTombstones.add(id)) continue;
       if (_active != null && _service.isConnected) {
         unawaited(_service.deleteMessage(id));
+      } else {
+        unawaited(_queueDelete(id));
       }
     }
 
     if (_active == null) return;
     // Uzak paket uygulandıysa geri gönderme (echo önlenir).
-    if (origin == MutationOrigin.remote) return;
+    if (origin == MutationOrigin.remote || origin == MutationOrigin.history) {
+      return;
+    }
     // Gönderilecek yeni bir yerel değişiklik yoksa boşuna ağ çağrısı yapma.
     if (controller.localRevision <= _pushedRevision) return;
 
@@ -250,9 +274,15 @@ final class CloudSyncCoordinator {
     if (ok) {
       _syncedIds.add(message.id);
       final SyncOutbox outbox = await _ensureOutbox();
+      // Push niyeti senkron işaretinden ÖNCE diske yazılır: arada uygulama
+      // kapatılsa bile açılışta "synced + push bekliyor" durumu bulunur.
+      await outbox.markPushPending(<String>[message.id]);
       await outbox.markSynced(<String>[message.id]);
       await outbox.dequeueMessage(message.id);
       _pendingIds.remove(message.id);
+      // Satır Supabase'de kesinleştikten SONRA push: Edge Function mesajı
+      // idempotency tablosunda bulabilir ve çift bildirim üretmez.
+      await _pushMessageOnce(message);
     } else {
       await _enqueue(message);
     }
@@ -275,22 +305,40 @@ final class CloudSyncCoordinator {
     );
   }
 
-  Future<void> _pushStateNow() async {
+  /// Durum push'larını single-flight kuyrukla serileştirir.
+  Future<void> _pushStateNow() {
+    final Future<void>? inFlight = _statePushInFlight;
+    if (inFlight != null) return inFlight;
+    final Future<void> future = _pushStateNowLocked();
+    _statePushInFlight = future.whenComplete(() {
+      if (identical(_statePushInFlight, future)) {
+        _statePushInFlight = null;
+      }
+    });
+    return _statePushInFlight!;
+  }
+
+  Future<void> _pushStateNowLocked() async {
     final SyncOutbox outbox = await _ensureOutbox();
     final GameController controller = _ref.read(gameProvider.notifier);
-    final int revision = controller.localRevision;
-    if (revision <= _pushedRevision) return;
+    final int targetRevision = controller.localRevision;
+    if (targetRevision <= _pushedRevision) return;
     final GameState state = _ref.read(gameProvider);
     if (!_service.isConnected) {
       await outbox.saveDirtyState(state);
       return;
     }
     final bool ok = await _service.pushState(state);
-    if (ok) {
-      _pushedRevision = revision;
+    // Push sırasında yeni yerel değişiklik geldiyse dirty state'i temizleme;
+    // aradaki değişiklik yeniden planlanır.
+    if (ok && controller.localRevision == targetRevision) {
+      _pushedRevision = targetRevision;
       await outbox.clearDirtyState();
     } else {
       await outbox.saveDirtyState(state);
+      if (controller.localRevision > targetRevision) {
+        _schedulePush();
+      }
     }
   }
 
@@ -301,22 +349,38 @@ final class CloudSyncCoordinator {
   Future<int> loadOlderMessages({int limit = 200}) async {
     if (!_service.isConnected) return -1;
     final List<ChatMessage> local = _ref.read(gameProvider).couple.messages;
-    final DateTime? before = local.isEmpty ? null : local.first.createdAt;
-    final List<ChatMessage> batch = await _service.fetchMessages(
-      limit: limit,
-      before: before,
-    );
-    if (batch.isEmpty) return 0;
-    return _applyHistory(batch);
+    final DateTime? before = _oldestCreatedAt(local);
+    try {
+      final List<ChatMessage> batch = await _service.fetchMessages(
+        limit: limit,
+        before: before,
+      );
+      if (batch.isEmpty) return 0;
+      return _applyHistory(batch);
+    } catch (_) {
+      return -1;
+    }
   }
 
   /// "Bağlantı kuruldu" anında son 200 mesajı açar / gerekirse yeniler.
   Future<List<ChatMessage>> pullFullHistory({int limit = 200}) async {
-    final List<ChatMessage> history = await _service.pullFullHistory(
-      limit: limit,
-    );
-    if (history.isNotEmpty) _applyHistory(history);
-    return history;
+    if (!_service.isConnected) return const <ChatMessage>[];
+    try {
+      final List<ChatMessage> history = await _service.pullFullHistory(
+        limit: limit,
+      );
+      if (history.isNotEmpty) _applyHistory(history);
+      return history;
+    } catch (_) {
+      return const <ChatMessage>[];
+    }
+  }
+
+  DateTime? _oldestCreatedAt(List<ChatMessage> messages) {
+    if (messages.isEmpty) return null;
+    return messages
+        .map((ChatMessage message) => message.createdAt)
+        .reduce((DateTime a, DateTime b) => a.isBefore(b) ? a : b);
   }
 
   /// "yazıyor…" göstergesini karşı tarafa iletir.
@@ -351,56 +415,78 @@ final class CloudSyncCoordinator {
         .set(SyncStatus.disabled, 'Yerel mod · bulut kapalı');
   }
 
-  /// Kalıcı kuyruğu boşaltır: önce mesajlar, sonra kirli durum.
+  /// Kalıcı kuyruğu boşaltır: önce silmeler, sonra mesajlar, sonra kirli durum.
   Future<void> _flushOutbox() async {
-    final SyncOutbox outbox = await _ensureOutbox();
     if (!_service.isConnected) return;
-    // Çevrimdışıyken silinen mesajları (tombstone) buluta da uygula.
-    for (final String id
-        in _ref.read(gameProvider).couple.deletedMessageTombstones.keys) {
-      if (!_knownTombstones.add(id)) continue;
-      await _service.deleteMessage(id);
-    }
-    final List<ChatMessage> pending = outbox.pendingMessages;
-    for (final ChatMessage message in pending) {
-      final bool ok = await _service.insertMessage(message);
-      if (!ok) continue;
-      _syncedIds.add(message.id);
-      _knownMessageIds.add(message.id);
-      _pendingIds.remove(message.id);
-      await outbox.dequeueMessage(message.id);
-      await outbox.markSynced(<String>[message.id]);
-    }
-    final GameController controller = _ref.read(gameProvider.notifier);
-    if (!outbox.hasDirtyState &&
-        controller.localRevision <= _pushedRevision) {
-      return;
-    }
-    final GameState state = _ref.read(gameProvider);
-    final bool pushed = await _service.pushState(state);
-    if (pushed) {
-      _pushedRevision = controller.localRevision;
-      await outbox.clearDirtyState();
-    } else {
-      await outbox.saveDirtyState(state);
+    final SyncOutbox outbox = await _ensureOutbox();
+    try {
+      // Çevrimdışıyken silinen mesajları buluta uygula.
+      final List<String> pendingDeletes = outbox.pendingDeletes.toList(
+        growable: false,
+      );
+      for (final String id in pendingDeletes) {
+        final bool ok = await _service.deleteMessage(id);
+        if (ok) {
+          _pendingDeletes.remove(id);
+          await outbox.dequeueDelete(id);
+        }
+      }
+
+      final List<ChatMessage> pending = outbox.pendingMessages;
+      for (final ChatMessage message in pending) {
+        final bool ok = await _service.insertMessage(message);
+        if (!ok) continue;
+        _syncedIds.add(message.id);
+        _knownMessageIds.add(message.id);
+        _pendingIds.remove(message.id);
+        await outbox.markPushPending(<String>[message.id]);
+        await outbox.markSynced(<String>[message.id]);
+        await outbox.dequeueMessage(message.id);
+        // Çevrimdışıyken yazılan mesaj bağlantı gelince tam bir kez push edilir.
+        await _pushMessageOnce(message);
+      }
+
+      // Önceki denemede ağ/401/403/kapanma nedeniyle gönderilemeyen push'ları,
+      // bağlantı yeniden kurulduğunda TÜM yerel mesajlar içinden tamamla.
+      final Set<String> pendingPushes = outbox.pendingPushMessageIds;
+      if (pendingPushes.isNotEmpty) {
+        final List<ChatMessage> allMessages = _ref
+            .read(gameProvider)
+            .couple
+            .messages;
+        for (final ChatMessage message in allMessages.reversed) {
+          if (!pendingPushes.contains(message.id)) continue;
+          if (!_syncedIds.contains(message.id)) continue;
+          if (_pushedIds.contains(message.id)) continue;
+          await _pushMessageOnce(message);
+        }
+      }
+
+      final GameController controller = _ref.read(gameProvider.notifier);
+      if (!outbox.hasDirtyState &&
+          controller.localRevision <= _pushedRevision) {
+        return;
+      }
+      final int targetRevision = controller.localRevision;
+      final GameState state = _ref.read(gameProvider);
+      final bool pushed = await _service.pushState(state);
+      // Push sırasında yeni yerel değişiklik geldiyse dirty state korunur.
+      if (pushed && controller.localRevision == targetRevision) {
+        _pushedRevision = targetRevision;
+        await outbox.clearDirtyState();
+      } else {
+        await outbox.saveDirtyState(state);
+      }
+    } catch (_) {
+      // Tek bir kuyruk öğesi başarısız olsa bile sıradaki öğeler etkilenmez;
+      // sonraki configure/resume denemesinde yeniden denenir.
     }
   }
 
   int _applyHistory(List<ChatMessage> history) {
-    _applyingRemote = true;
-    _applyingHistory = true;
-    _remoteApplyPending = true;
-    _historyApplyPending = true;
-    int added = 0;
-    try {
-      added = _ref
-          .read(gameProvider.notifier)
-          .mergeRemoteMessages(history);
-    } finally {
-      // Sabit Timer yok: bayrak mutasyonun tam etrafında açılıp kapanır.
-      _applyingRemote = false;
-      _applyingHistory = false;
-    }
+    final int added = _ref
+        .read(gameProvider.notifier)
+        .mergeRemoteMessages(history, origin: MutationOrigin.history);
     _markSynced(history.map((ChatMessage message) => message.id));
     unawaited(_backfillLocalMessages());
     unawaited(_flushOutbox());
@@ -414,21 +500,132 @@ final class CloudSyncCoordinator {
   /// senkronize edilmemiş mesajlar ve son 200 kayıt taranır.
   Future<void> _backfillLocalMessages() async {
     if (!_service.isConnected) return;
-    final List<ChatMessage> messages = _ref.read(gameProvider).couple.messages;
-    final int start = messages.length > 200 ? messages.length - 200 : 0;
-    for (int i = start; i < messages.length; i++) {
-      final ChatMessage message = messages[i];
-      if (_syncedIds.contains(message.id)) continue;
-      if (_pendingIds.contains(message.id)) continue;
-      final bool ok = await _service.insertMessage(message);
-      if (ok) {
-        _syncedIds.add(message.id);
-        final SyncOutbox outbox = await _ensureOutbox();
-        await outbox.markSynced(<String>[message.id]);
-      } else {
-        await _enqueue(message);
+    try {
+      final List<ChatMessage> messages = _ref
+          .read(gameProvider)
+          .couple
+          .messages;
+      final int start = messages.length > 200 ? messages.length - 200 : 0;
+      for (int i = start; i < messages.length; i++) {
+        final ChatMessage message = messages[i];
+        if (_syncedIds.contains(message.id)) continue;
+        if (_pendingIds.contains(message.id)) continue;
+        final bool ok = await _service.insertMessage(message);
+        if (ok) {
+          _syncedIds.add(message.id);
+          final SyncOutbox outbox = await _ensureOutbox();
+          await outbox.markSynced(<String>[message.id]);
+          // Backfill eski seed mesajlarını push etmez; yalnızca outbox'ta
+          // push bekleyen (requestPushFor / çevrimdışı kuyruk) mesajları iletir.
+          if (outbox.pendingPushMessageIds.contains(message.id) ||
+              _pushRequestedIds.contains(message.id)) {
+            await _pushMessageOnce(message);
+          }
+        } else {
+          await _enqueue(message);
+        }
       }
+    } catch (_) {
+      // Tek mesaj başarısız olsa bile sıradaki kayıtlar etkilenmez.
     }
+  }
+
+  /// AppServices'in `own == true` dalından çağrılır.
+  ///
+  /// Ağ isteği **hemen** yapılmaz: önce mesajın Supabase satırı kesinleşir,
+  /// sonra [_pushMessageOnce] tam bir kez çalışır. Böylece Edge Function
+  /// idempotency kontrolü mesajı bulabilir ve gönderenin sessiz saati /
+  /// kapalı bildirim ayarı partnerin push'unu engelleyemez.
+  Future<void> requestPushFor(ChatMessage message) async {
+    final AppSettings settings = _ref.read(appSettingsProvider);
+    if (message.senderId != settings.deviceRole) return;
+    _pushRequestedIds.add(message.id);
+    final SyncOutbox outbox = await _ensureOutbox();
+    if (outbox.pushedMessageIds.contains(message.id) ||
+        _pushedIds.contains(message.id)) {
+      return;
+    }
+    await outbox.markPushPending(<String>[message.id]);
+    if (_syncedIds.contains(message.id)) {
+      await _pushMessageOnce(message);
+    }
+  }
+
+  Future<void> _pushMessageOnce(ChatMessage message) async {
+    final AppSettings settings = _ref.read(appSettingsProvider);
+    if (message.senderId != settings.deviceRole) return;
+    if (!MessageDeliveryPolicy.shouldPushOutgoing(settings: settings)) return;
+    if (_pushedIds.contains(message.id) || !_pushInFlight.add(message.id)) {
+      return;
+    }
+    try {
+      final SyncOutbox outbox = await _ensureOutbox();
+      if (outbox.pushedMessageIds.contains(message.id)) {
+        _pushedIds.add(message.id);
+        return;
+      }
+      final PushResult result = await _pushDispatcher(
+        settings: settings,
+        message: message,
+      );
+      // 401/403 retry'ı PushService içinde **bir kez** yapılır; oturum + oda
+      // üyeliği `refreshMembership` köprüsüyle (AppServices) tazelenir.
+      if (result.ok) {
+        _pushedIds.add(message.id);
+        _pushRequestedIds.remove(message.id);
+        await outbox.markPushed(<String>[message.id]);
+      } else {
+        // Yapılandırılmış tanı: sağlık paneli + sohbet uyarısı aynı sonucu
+        // gösterir; geliştirici logu da mesaj ve HTTP kodunu taşır.
+        debugPrint(
+          'push failed · message=${message.id} · '
+          'http=${result.statusCode} · ${result.message}',
+        );
+      }
+      _ref.read(pushHealthProvider.notifier).set(result);
+    } finally {
+      _pushInFlight.remove(message.id);
+    }
+  }
+
+  /// Sohbet ekranı okundu bilgisini güvenli RPC'ye taşır.
+  ///
+  /// `p_up_to` anlamına gelir: o ana kadar partnerden gelen tüm okunmamış
+  /// mesajlar `mark_messages_read` ile işaretlenir.
+  Future<void> markMessagesRead(DateTime upTo) async {
+    if (!_service.isConnected) return;
+    await _service.markMessagesRead(upTo);
+  }
+
+  Future<void> _queueDelete(String messageId) async {
+    if (!_pendingDeletes.add(messageId)) return;
+    final SyncOutbox outbox = await _ensureOutbox();
+    await outbox.enqueueDelete(messageId);
+  }
+
+  /// Emoji tepkisini güvenli RPC'ye taşır.
+  Future<void> toggleMessageReaction(String messageId, String emoji) async {
+    if (!_service.isConnected) return;
+    await _service.toggleMessageReaction(messageId, emoji);
+  }
+
+  /// Push 401/403 retry'ı öncesi oturum + oda üyeliğini tazeler.
+  Future<bool> refreshSessionAndMembership() =>
+      _service.refreshSessionAndMembership();
+
+  Future<void> _syncMemberHealth(AppSettings settings) async {
+    if (!_service.isConnected) return;
+    await _service.updateMemberHealth(
+      pushEnabled: settings.isPushConfigured && settings.messageNotifications,
+      // DND kapalıysa sunucu sessiz saat uygulamamalı.
+      quietStartMinute: settings.doNotDisturbEnabled
+          ? settings.quietStartMinutes
+          : null,
+      quietEndMinute: settings.doNotDisturbEnabled
+          ? settings.quietEndMinutes
+          : null,
+      utcOffsetMinutes: DateTime.now().timeZoneOffset.inMinutes,
+    );
   }
 
   void _markSynced(Iterable<String> ids) {
@@ -439,7 +636,9 @@ final class CloudSyncCoordinator {
     if (list.isEmpty) return;
     _syncedIds.addAll(list);
     _knownMessageIds.addAll(list);
-    unawaited(_ensureOutbox().then((SyncOutbox outbox) => outbox.markSynced(list)));
+    unawaited(
+      _ensureOutbox().then((SyncOutbox outbox) => outbox.markSynced(list)),
+    );
   }
 
   void _onRemoteHistory(List<ChatMessage> messages) {
@@ -450,55 +649,29 @@ final class CloudSyncCoordinator {
   void _onRemoteMessage(ChatMessage message) {
     _knownMessageIds.add(message.id);
     _markSynced(<String>[message.id]);
-    _applyingRemote = true;
-    _remoteApplyPending = true;
-    _applyingHistory = false;
-    try {
-      _ref.read(gameProvider.notifier).receiveRemoteMessage(message);
-    } finally {
-      _applyingRemote = false;
-    }
+    _ref.read(gameProvider.notifier).receiveRemoteMessage(message);
   }
 
   void _onRemoteMessageUpdate(ChatMessage message) {
     _markSynced(<String>[message.id]);
-    _applyingRemote = true;
-    _remoteApplyPending = true;
-    try {
-      _ref.read(gameProvider.notifier).mergeRemoteMessageUpdate(message);
-    } finally {
-      _applyingRemote = false;
-    }
+    _ref.read(gameProvider.notifier).mergeRemoteMessageUpdate(message);
   }
 
   void _onRemoteMessageDeleted(String messageId) {
-    _applyingRemote = true;
-    _remoteApplyPending = true;
     _knownTombstones.add(messageId);
-    try {
-      _ref
-          .read(gameProvider.notifier)
-          .deleteMessage(messageId, origin: MutationOrigin.remote);
-    } finally {
-      _applyingRemote = false;
-    }
+    _ref
+        .read(gameProvider.notifier)
+        .deleteMessage(messageId, origin: MutationOrigin.remote);
   }
 
   void _onRemoteState(GameState remote) {
-    _markSynced(remote.couple.messages.map((ChatMessage message) => message.id));
-    _applyingRemote = true;
-    _remoteApplyPending = true;
-    _applyingHistory = false;
-    try {
-      final String role = _ref.read(appSettingsProvider).deviceRole;
-      // Cihaz rolü kilitlidir: karşı telefonun aktif profili bu telefonu
-      // değiştirmez (Yusuf'un telefonu Ceyda görünümüne geçmez).
-      _ref
-          .read(gameProvider.notifier)
-          .applyRemoteState(remote, deviceRole: role);
-    } finally {
-      _applyingRemote = false;
-    }
+    _markSynced(
+      remote.couple.messages.map((ChatMessage message) => message.id),
+    );
+    final String role = _ref.read(appSettingsProvider).deviceRole;
+    // Cihaz rolü kilitlidir: karşı telefonun aktif profili bu telefonu
+    // değiştirmez (Yusuf'un telefonu Ceyda görünümüne geçmez).
+    _ref.read(gameProvider.notifier).applyRemoteState(remote, deviceRole: role);
     // Uzak durum uygulandı; `localRevision` artmadığı için echo oluşmaz.
     // Ancak yerelde biriken mesajlar varsa kuyruk yine boşaltılır.
     unawaited(_flushOutbox());

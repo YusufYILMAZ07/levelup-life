@@ -113,9 +113,7 @@ final class QuestController {
       isCustom: true,
       status: quest.isCompleted ? QuestStatus.completed : QuestStatus.active,
     );
-    _game.commit(
-      _state.copyWith(quests: <Quest>[..._state.quests, custom]),
-    );
+    _game.commit(_state.copyWith(quests: <Quest>[..._state.quests, custom]));
     return true;
   }
 

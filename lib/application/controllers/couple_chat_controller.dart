@@ -87,7 +87,11 @@ final class CoupleChatController {
   }
 
   /// Şu anki (yoksa sıradaki) plan bloğunu sohbete görsel kanıt olarak atar.
-  ChatMessage? sendScheduleProof({String? partnerId, String? blockId}) {
+  ChatMessage? sendScheduleProof({
+    String? partnerId,
+    String? blockId,
+    ChatMessage? replyTo,
+  }) {
     final String id = partnerId ?? _state.activePartnerId;
     final DateTime now = DateTime.now();
     final ScheduleBlock? block = blockId != null
@@ -113,6 +117,8 @@ final class CoupleChatController {
             : 'Sıradaki plan · ${block.weekdayShortLabel} '
                   '${block.timeRangeLabel}',
         kind: ChatMessageKind.proof,
+        replyToMessageId: replyTo?.id,
+        replyPreviewText: replyTo?.preview,
       ),
     );
   }
@@ -157,9 +163,7 @@ final class CoupleChatController {
 
   /// Fotoğrafı beğenir/beğeniyi kaldırır (galeri kalbi).
   void likeMessage(String messageId) {
-    _game.commit(
-      _state.withCouple(_state.couple.toggleMessageLike(messageId)),
-    );
+    _game.commit(_state.withCouple(_state.couple.toggleMessageLike(messageId)));
   }
 
   /// Mesajı yerinde günceller (okundu vb.). Silinmiş mesaj geri dirilmez.
@@ -196,7 +200,13 @@ final class CoupleChatController {
     if (_state.couple.isMessageTombstoned(message.id)) return false;
     final ChatMessage? local = _state.couple.messageById(message.id);
     if (local == null) return receiveRemoteMessage(message);
-    final ChatMessage merged = mergeMessage(local, message);
+    // Realtime UPDATE, RPC sonrası sunucunun tam tepki anlık görüntüsüdür.
+    // Union yerine sunucu kümesini esas al; böylece bir emoji geri alındığında
+    // (toggle off) karşı cihazda da kaybolur.
+    final ChatMessage merged = mergeMessage(
+      local,
+      message,
+    ).copyWith(reactions: message.reactions);
     if (merged == local) return false;
     _game.commit(
       _state.withCouple(_state.couple.upsertMessage(merged)),
@@ -208,7 +218,10 @@ final class CoupleChatController {
   /// Geçmişten gelen mesajları yereldeki mesajlarla birleştirir.
   ///
   /// Hiçbir yerel mesaj silinmez; tombstone'lu kimlikler eklenmez.
-  int mergeRemoteMessages(List<ChatMessage> incoming) {
+  int mergeRemoteMessages(
+    List<ChatMessage> incoming, {
+    MutationOrigin origin = MutationOrigin.remote,
+  }) {
     if (incoming.isEmpty) return 0;
     final List<ChatMessage> merged = mergeMessages(
       local: _state.couple.messages,
@@ -219,7 +232,7 @@ final class CoupleChatController {
     final int added = merged.length - _state.couple.messages.length;
     _game.commit(
       _state.withCouple(_state.couple.copyWith(messages: merged)),
-      origin: MutationOrigin.remote,
+      origin: origin,
     );
     return added;
   }
@@ -263,7 +276,8 @@ final class CoupleChatController {
       for (final MapEntry<String, Set<String>> entry in local.reactions.entries)
         entry.key: <String>{...entry.value},
     };
-    for (final MapEntry<String, Set<String>> entry in remote.reactions.entries) {
+    for (final MapEntry<String, Set<String>> entry
+        in remote.reactions.entries) {
       reactions[entry.key] = <String>{
         ...(reactions[entry.key] ?? const <String>{}),
         ...entry.value,
@@ -279,8 +293,30 @@ final class CoupleChatController {
 
   // ── Dürtme / aşk notları / görev paylaşımı ───────────────────────────────
 
+  /// Dürtme spam'ini önleyen bekleme süresi.
+  static const Duration nudgeCooldown = Duration(minutes: 1);
+
+  /// Son dürtmeden bu yana kalan bekleme (0 → gönderilebilir).
+  Duration nudgeCooldownRemaining({String? partnerId}) {
+    final String me = partnerId ?? _state.activePartnerId;
+    DateTime? last;
+    for (final ChatMessage message in _state.couple.messages) {
+      if (message.kind != ChatMessageKind.nudge) continue;
+      if (message.senderId != me) continue;
+      if (last == null || message.createdAt.isAfter(last)) {
+        last = message.createdAt;
+      }
+    }
+    if (last == null) return Duration.zero;
+    final Duration remaining = nudgeCooldown - DateTime.now().difference(last);
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
   /// Partnerine dürtme gönderir ve küçük bir disiplin XP'si kazanır.
+  ///
+  /// Bekleme süresi dolmadıysa `null` döner (UI kalan süreyi gösterir).
   ChatMessage? nudgePartner() {
+    if (nudgeCooldownRemaining().inSeconds > 0) return null;
     final String me = _state.activePartnerId;
     final String target = CouplePartner.other(me);
     final ChatMessage message = _appendMessage(

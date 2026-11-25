@@ -44,7 +44,13 @@ class _PhotoLightbox extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final CoupleState couple = ref.watch(coupleStateProvider);
     final ChatMessage? found = couple.messageById(messageId);
-    if (found == null) return const SizedBox.shrink();
+    if (found == null) {
+      // Mesaj silindiyse lightbox açık kalmasın.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) Navigator.of(context).maybePop();
+      });
+      return const SizedBox.shrink();
+    }
     final ChatMessage current = found;
     final Color accent = CouplePalette.colorOf(current.senderId);
     final bool isVideo = current.hasVideo;

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../application/game_controller.dart';
 import '../../../core/theme/theme.dart';
 import '../../../domain/entities/entities.dart';
 import '../../../services/media_service.dart';
@@ -13,14 +15,32 @@ Future<String?> showMediaPreviewSheet(BuildContext context, PickedMedia media) {
     isScrollControlled: true,
     backgroundColor: AppColors.surface,
     shape: const RoundedRectangleBorder(borderRadius: AppRadii.sheet),
-    builder: (BuildContext sheetContext) => _MediaPreviewSheet(media: media),
+    builder: (BuildContext sheetContext) => Consumer(
+      builder: (BuildContext context, WidgetRef ref, Widget? child) {
+        // Kart, mesajı gönderecek **aktif partnerin** rengini kullanır.
+        final String activeId = ref.watch(
+          gameProvider.select((state) => state.activePartnerId),
+        );
+        return _MediaPreviewSheet(
+          media: media,
+          accent: CouplePalette.colorOf(activeId),
+          soft: CouplePalette.softOf(activeId),
+        );
+      },
+    ),
   );
 }
 
 class _MediaPreviewSheet extends StatefulWidget {
-  const _MediaPreviewSheet({required this.media});
+  const _MediaPreviewSheet({
+    required this.media,
+    required this.accent,
+    required this.soft,
+  });
 
   final PickedMedia media;
+  final Color accent;
+  final Color soft;
 
   @override
   State<_MediaPreviewSheet> createState() => _MediaPreviewSheetState();
@@ -85,13 +105,13 @@ class _MediaPreviewSheetState extends State<_MediaPreviewSheet> {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: CouplePalette.softOf(CouplePartner.ceydaId),
+                      color: widget.soft,
                       borderRadius: AppRadii.pillAll,
                     ),
                     child: Text(
                       isVideo ? '🎥 Video' : '📷 Fotoğraf',
                       style: AppTypography.caption.copyWith(
-                        color: CouplePalette.ceyda,
+                        color: widget.accent,
                         fontWeight: FontWeight.w800,
                         fontSize: 10,
                       ),
@@ -120,6 +140,18 @@ class _MediaPreviewSheetState extends State<_MediaPreviewSheet> {
                   ),
                   onOpenFullscreen: () {},
                   height: 220,
+                )
+              else if (widget.media.source.trim().isEmpty &&
+                  widget.media.bytes != null)
+                // Web: yükleme öncesi base64/data URL üretilmez; seçilen ham
+                // baytlar doğrudan önizlenir.
+                ClipRRect(
+                  borderRadius: AppRadii.mdAll,
+                  child: SizedBox(
+                    height: 220,
+                    width: double.infinity,
+                    child: Image.memory(widget.media.bytes!, fit: BoxFit.cover),
+                  ),
                 )
               else
                 CouplePhoto(source: widget.media.source, height: 220),

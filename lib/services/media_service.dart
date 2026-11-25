@@ -15,9 +15,14 @@ final class PickedMedia {
     this.thumbnailPath,
     this.bytes,
     this.requiresUpload = false,
+    this.mimeType = '',
+    this.fileName = '',
   });
 
   /// `ChatMessage.mediaPathOrUrl` içine yazılacak değer.
+  ///
+  /// Web'de bulut yüklemesi yapılacaksa **boştur**: base64 `data:` kaydı
+  /// üretilmez, yükleme sonrası kalıcı URL yazılır.
   final String source;
   final ChatMediaType mediaType;
   final int durationSeconds;
@@ -30,7 +35,25 @@ final class PickedMedia {
   /// Storage'a yüklenmesi gerekir.
   final bool requiresUpload;
 
+  /// Seçilen dosyanın gerçek MIME türü (yüklemede korunur).
+  final String mimeType;
+
+  /// Seçilen dosyanın gerçek adı (uzantı korunur).
+  final String fileName;
+
   bool get isVideo => mediaType == ChatMediaType.video;
+
+  /// Yükleme sırasında kullanılacak içerik türü.
+  String get contentType => mimeType.trim().isNotEmpty
+      ? mimeType.trim()
+      : (isVideo ? 'video/mp4' : 'image/jpeg');
+
+  /// Yükleme sırasında kullanılacak dosya adı (uzantı dahil).
+  String get uploadFileName {
+    final String name = fileName.trim();
+    if (name.isNotEmpty) return name;
+    return isVideo ? 'clip.mp4' : 'photo.jpg';
+  }
 }
 
 /// Kullanıcıya gösterilecek, Türkçe ve sakin medya hataları.
@@ -46,9 +69,12 @@ final class MediaPickException implements Exception {
 /// Gerçek telefon kamerası + galeri köprüsü.
 ///
 /// * **Mobil (iOS / Android):** seçilen dosya uygulamanın `media/` klasörüne
-///   kopyalanır ve kalıcı yol döner.
-/// * **Web (Chrome):** dosya `base64` **data URL**'ye çevrilir; böylece
-///   `Image.memory` / `video_player` ek plugin olmadan çalışır.
+///   kopyalanır ve kalıcı yol döner. Kopyalama başarısızsa **geçici önbellek
+///   yolu ile devam edilmez**; kullanıcıya hata verilir (dosya ertesi gün
+///   kaybolurdu).
+/// * **Web (Chrome):** bulut bağlıysa base64 üretilmez; ham `bytes` +
+///   `requiresUpload` döner ve yükleme Supabase Storage'a yapılır. Bulut yoksa
+///   yalnızca 250 KB altındaki medya `data:` URL olarak yerelde tutulur.
 final class MediaService {
   MediaService({ImagePicker? picker}) : _picker = picker ?? ImagePicker();
 
@@ -95,49 +121,40 @@ final class MediaService {
     if (bytes.isEmpty) {
       throw const MediaPickException('Fotoğraf boş görünüyor.');
     }
+    final String mime = _mimeOf(file, 'image/jpeg');
+    final String name =
+        'img_${DateTime.now().microsecondsSinceEpoch}.'
+        '${_extensionOf(file, _extensionForMime(mime, 'jpg'))}';
 
     if (kIsWeb) {
-      final String mime = _mimeOf(file, 'image/jpeg');
-      if (bytes.length <= maxInlineBytes) {
-        return PickedMedia(
-          source: 'data:$mime;base64,${base64Encode(bytes)}',
-          mediaType: ChatMediaType.image,
-          bytes: bytes,
-        );
-      }
-      if (forAvatar) {
-        throw const MediaPickException(
-          'Profil fotoğrafı çok büyük (en fazla 250 KB). Daha küçük bir kare '
-          'seç veya uygulamayı telefonda kullan.',
-        );
-      }
-      if (!allowCloudUpload) {
-        throw const MediaPickException(
-          'Web’de büyük fotoğraflar için Supabase bağlantısı gerekli. '
-          'Ayarlar → Bulut senkronunu kur ya da daha küçük bir fotoğraf seç.',
-        );
-      }
-      // Önizleme için data URL bellekte tutulur; **kalıcı kayda yazılmaz**.
-      // Görsel önce Supabase Storage'a yüklenir ve `localStorage` yalnızca
-      // imzalı URL'yi saklar.
-      return PickedMedia(
-        source: 'data:$mime;base64,${base64Encode(bytes)}',
-        mediaType: ChatMediaType.image,
+      return _webMedia(
         bytes: bytes,
-        requiresUpload: true,
+        mediaType: ChatMediaType.image,
+        mimeType: mime,
+        fileName: name,
+        allowCloudUpload: allowCloudUpload,
+        tooLargeMessage: forAvatar
+            ? 'Profil fotoğrafı çok büyük (en fazla 250 KB). Daha küçük bir '
+                  'kare seç veya uygulamayı telefonda kullan.'
+            : 'Web’de büyük fotoğraflar için Supabase bağlantısı gerekli. '
+                  'Ayarlar → Bulut senkronunu kur ya da daha küçük bir fotoğraf '
+                  'seç.',
       );
     }
 
-    final String stored =
-        await persistMediaFile(
-          file.path,
-          'img_${DateTime.now().microsecondsSinceEpoch}.${_extensionOf(file, 'jpg')}',
-        ) ??
-        file.path;
+    final String? stored = await persistMediaFile(file.path, name);
+    if (stored == null) {
+      throw const MediaPickException(
+        'Fotoğraf bu telefona kaydedilemedi. Depolama alanını kontrol edip '
+        'tekrar dene.',
+      );
+    }
     return PickedMedia(
       source: stored,
       mediaType: ChatMediaType.image,
       bytes: bytes,
+      mimeType: mime,
+      fileName: name,
     );
   }
 
@@ -170,11 +187,19 @@ final class MediaService {
     } catch (_) {
       throw const MediaPickException('Video boyutu okunamadı, tekrar dene.');
     }
+    if (fileLength <= 0) {
+      throw const MediaPickException('Video boş görünüyor.');
+    }
     if (fileLength > maxVideoBytes) {
       throw const MediaPickException(
         'Video çok büyük (en fazla 20 MB). Daha kısa bir video seç.',
       );
     }
+
+    final String mime = _mimeOf(file, 'video/mp4');
+    final String name =
+        'vid_${DateTime.now().microsecondsSinceEpoch}.'
+        '${_extensionOf(file, _extensionForMime(mime, 'mp4'))}';
 
     Uint8List? bytes;
     if (kIsWeb || includeBytes) {
@@ -194,49 +219,74 @@ final class MediaService {
     }
 
     if (kIsWeb) {
-      final Uint8List webBytes = bytes!;
-      final String mime = _mimeOf(file, 'video/mp4');
-      if (webBytes.length <= maxInlineBytes) {
-        return PickedMedia(
-          source: 'data:$mime;base64,${base64Encode(webBytes)}',
-          mediaType: ChatMediaType.video,
-          bytes: webBytes,
-        );
-      }
-      if (!allowCloudUpload) {
-        throw const MediaPickException(
-          'Web’de video göndermek için Supabase bağlantısı gerekli. '
-          'Ayarlar → Bulut senkronunu kur ya da iPhone’da dene.',
-        );
-      }
-      return PickedMedia(
-        source: 'data:$mime;base64,${base64Encode(webBytes)}',
+      return _webMedia(
+        bytes: bytes!,
         mediaType: ChatMediaType.video,
-        bytes: webBytes,
-        requiresUpload: true,
+        mimeType: mime,
+        fileName: name,
+        allowCloudUpload: allowCloudUpload,
+        tooLargeMessage:
+            'Web’de video göndermek için Supabase bağlantısı gerekli. '
+            'Ayarlar → Bulut senkronunu kur ya da iPhone’da dene.',
       );
     }
 
-    final String stored =
-        await persistMediaFile(
-          file.path,
-          'vid_${DateTime.now().microsecondsSinceEpoch}.${_extensionOf(file, 'mp4')}',
-        ) ??
-        file.path;
+    final String? stored = await persistMediaFile(file.path, name);
+    if (stored == null) {
+      throw const MediaPickException(
+        'Video bu telefona kaydedilemedi. Depolama alanını kontrol edip '
+        'tekrar dene.',
+      );
+    }
     return PickedMedia(
       source: stored,
       mediaType: ChatMediaType.video,
       bytes: bytes,
+      mimeType: mime,
+      fileName: name,
     );
   }
 
-  /// Profil fotoğrafı için galeriden kare seçer (Web'de inline sınır uygular).
-  Future<String?> pickAvatar() async {
-    final PickedMedia? media = await pickImage(
-      source: ImageSource.gallery,
-      forAvatar: true,
-    );
-    return media?.source;
+  /// Profil fotoğrafı için galeriden kare seçer.
+  ///
+  /// Web'de bulut bağlıysa yükleme için ham `bytes` döner
+  /// ([PickedMedia.requiresUpload]); böylece 250 KB sınırı aşılmaz.
+  Future<PickedMedia?> pickAvatar({bool allowCloudUpload = false}) => pickImage(
+    source: ImageSource.gallery,
+    forAvatar: true,
+    allowCloudUpload: allowCloudUpload,
+  );
+
+  /// Web medyası: bulut varsa **ham bytes** (base64 yok), yoksa küçük dosya
+  /// için yerel `data:` URL.
+  static PickedMedia _webMedia({
+    required Uint8List bytes,
+    required ChatMediaType mediaType,
+    required String mimeType,
+    required String fileName,
+    required bool allowCloudUpload,
+    required String tooLargeMessage,
+  }) {
+    if (allowCloudUpload) {
+      return PickedMedia(
+        source: '',
+        mediaType: mediaType,
+        bytes: bytes,
+        requiresUpload: true,
+        mimeType: mimeType,
+        fileName: fileName,
+      );
+    }
+    if (bytes.length <= maxInlineBytes) {
+      return PickedMedia(
+        source: 'data:$mimeType;base64,${base64Encode(bytes)}',
+        mediaType: mediaType,
+        bytes: bytes,
+        mimeType: mimeType,
+        fileName: fileName,
+      );
+    }
+    throw MediaPickException(tooLargeMessage);
   }
 
   static String _extensionOf(XFile file, String fallback) {
@@ -245,6 +295,20 @@ final class MediaService {
     if (dot < 0 || dot == name.length - 1) return fallback;
     final String ext = name.substring(dot + 1).toLowerCase();
     return ext.length > 5 ? fallback : ext;
+  }
+
+  static String _extensionForMime(String mime, String fallback) {
+    final String value = mime.toLowerCase();
+    if (value.contains('png')) return 'png';
+    if (value.contains('webp')) return 'webp';
+    if (value.contains('gif')) return 'gif';
+    if (value.contains('heic')) return 'heic';
+    if (value.contains('quicktime')) return 'mov';
+    if (value.contains('webm')) return 'webm';
+    if (value.contains('m4v')) return 'm4v';
+    if (value.contains('mp4')) return 'mp4';
+    if (value.contains('jpeg') || value.contains('jpg')) return 'jpg';
+    return fallback;
   }
 
   static String _mimeOf(XFile file, String fallback) {
@@ -260,6 +324,7 @@ final class MediaService {
       'mov' => 'video/quicktime',
       'webm' => 'video/webm',
       'm4v' => 'video/x-m4v',
+      'jpg' => 'image/jpeg',
       _ => fallback,
     };
   }

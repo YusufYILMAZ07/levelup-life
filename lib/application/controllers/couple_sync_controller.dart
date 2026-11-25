@@ -1,4 +1,3 @@
-
 import '../../data/game_store.dart';
 import '../../domain/entities/entities.dart';
 import '../../services/app_settings.dart';
@@ -96,6 +95,9 @@ final class CoupleSyncController {
   /// "Hedeflerimi sıfırla" — onboarding'e geri döner ve tüm ilerlemeyi siler.
   Future<void> resetJourney() async {
     _game.commit(const GameState());
+    // Önce planlanan yazımı bitir, **sonra** temizle: aksi hâlde kuyruktaki
+    // boş kayıt, temizliğin ardından diske yazılıp store'u "dolu" bırakıyordu.
+    await _game.flushWrites();
     await _game.ref.read(gameStoreProvider).clear();
   }
 

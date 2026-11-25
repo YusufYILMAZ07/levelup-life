@@ -8,7 +8,7 @@ import 'game_state.dart';
 /// v6'da senkron koordinatörü, uzak paketi uygularken "bu değişikliği buluta
 /// geri gönderme" kararını zamanlayıcı (Timer) ile değil bu etiketle verir.
 /// Böylece 700–900 ms'lik yarış pencereleri tamamen ortadan kalkar.
-enum MutationOrigin { local, remote }
+enum MutationOrigin { local, remote, history }
 
 /// Controller modüllerinin oyun durumuna eriştiği dar sözleşme.
 ///
@@ -21,6 +21,12 @@ abstract interface class GameStateAccess {
 
   /// Yeni durumu yazar, kaynağını etiketler ve diske yazılmasını planlar.
   void commit(GameState next, {MutationOrigin origin = MutationOrigin.local});
+
+  /// Planlanan (kuyruktaki) yazımların tamamlanmasını bekler.
+  ///
+  /// Sıfırlama/geri yükleme gibi işlemlerde "önce yaz, sonra temizle" sırasını
+  /// garanti eder; aksi hâlde eski bir anlık görüntü temizliği geri yazabilir.
+  Future<void> flushWrites();
 }
 
 /// Controller modüllerinin paylaştığı XP/partner yardımcıları.

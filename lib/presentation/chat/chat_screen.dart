@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../application/game_controller.dart';
 import '../../application/game_state.dart';
+import '../../application/shell_controller.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/theme.dart';
 import '../../core/utils/image_url.dart';
@@ -12,6 +15,7 @@ import '../../domain/entities/entities.dart';
 import '../../services/app_settings.dart';
 import '../../services/cloud_sync_coordinator.dart';
 import '../../services/media_service.dart';
+import '../../services/push_service.dart';
 import '../widgets/partner_avatar.dart';
 import 'widgets/couple_photo.dart';
 import 'widgets/media_picker_sheet.dart';
@@ -47,6 +51,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _searching = false;
   bool _loadingOlder = false;
   String _query = '';
+  String? _focusedMessageId;
+  Timer? _focusClearTimer;
 
   static const List<String> _quickReactions = <String>[
     '❤️',
@@ -62,9 +68,68 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _cloud = ref.read(cloudSyncProvider);
     _input.addListener(_onInputChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _jumpToEnd(animate: false);
       // Sohbeti açan partner, karşıdan gelen mesajları görmüş olur (✓✓).
-      ref.read(gameProvider.notifier).markConversationRead();
+      // Sekme görünür değilse okundu işaretlenmez (aşağıdaki ref.listen).
+      _markConversationRead();
+      // Push dokunuşu ChatScreen açılmadan geldiyse (soğuk başlatma) ilk
+      // değeri `ref.listen` kaçırır; burada bir kez tüket.
+      final String? pendingFocus = ref.read(chatFocusMessageProvider);
+      if (pendingFocus != null && pendingFocus.trim().isNotEmpty) {
+        _focusMessage(pendingFocus);
+        ref.read(chatFocusMessageProvider.notifier).clear();
+      }
+    });
+  }
+
+  /// Sohbet sekmesi şu an ekranda mı? (IndexedStack tüm sekmeleri kurar)
+  bool get _chatTabActive =>
+      ref.read(shellTabProvider) == ShellTabController.chat;
+
+  /// Yerel ✓✓ durumunu ve alıcı RPC'sini birlikte çalıştırır.
+  ///
+  /// Kullanıcı başka sekmedeyken gelen mesaj "okundu" sayılmaz; sekme
+  /// aktifleştiğinde tekrar denenir.
+  void _markConversationRead({bool force = false}) {
+    if (!force && !_chatTabActive) return;
+    final GameState state = ref.read(gameProvider);
+    final List<ChatMessage> unread = <ChatMessage>[
+      for (final ChatMessage message in state.couple.messages)
+        if (message.senderId != state.activePartnerId && !message.isRead)
+          message,
+    ];
+    ref.read(gameProvider.notifier).markConversationRead();
+    if (unread.isEmpty) return;
+    DateTime latest = unread.first.createdAt;
+    for (final ChatMessage message in unread) {
+      if (message.createdAt.isAfter(latest)) latest = message.createdAt;
+    }
+    unawaited(ref.read(cloudSyncProvider).markMessagesRead(latest));
+  }
+
+  void _focusMessage(String messageId) {
+    final List<ChatMessage> messages = ref.read(gameProvider).couple.messages;
+    final int index = messages.indexWhere(
+      (ChatMessage message) => message.id == messageId,
+    );
+    setState(() => _focusedMessageId = messageId);
+    _focusClearTimer?.cancel();
+    _focusClearTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      setState(() => _focusedMessageId = null);
+    });
+    if (index < 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      final double ratio = messages.isEmpty ? 0 : index / messages.length;
+      final double target =
+          _scroll.position.maxScrollExtent * ratio.clamp(0.0, 1.0);
+      _scroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 320),
+        curve: AppMotion.enter,
+      );
     });
   }
 
@@ -81,13 +146,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     _input.removeListener(_onInputChanged);
     _cloud?.setTyping(false);
+    _focusClearTimer?.cancel();
     _scroll.dispose();
     _input.dispose();
     _search.dispose();
     super.dispose();
   }
 
-  void _jumpToEnd({bool animate = true}) {
+  void _jumpToEnd({bool animate = true, int attempt = 0}) {
     if (!_scroll.hasClients) return;
     final double target = _scroll.position.maxScrollExtent;
     if (animate) {
@@ -99,6 +165,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } else {
       _scroll.jumpTo(target);
     }
+    // Tembel kurulan `ListView`'de maksimum kaydırma bir tahmindir; hedefe
+    // ulaşana kadar (en fazla 3 kare) yeniden hizala.
+    if (attempt >= 3) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      if (_scroll.position.pixels + 1 < _scroll.position.maxScrollExtent) {
+        _jumpToEnd(animate: false, attempt: attempt + 1);
+        WidgetsBinding.instance.scheduleFrame();
+      }
+    });
   }
 
   void _snack(String message) {
@@ -124,9 +200,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _loadOlderMessages() async {
     if (_loadingOlder) return;
     setState(() => _loadingOlder = true);
-    final int added = await ref.read(cloudSyncProvider).loadOlderMessages();
+    int added = 0;
+    String? failure;
+    try {
+      added = await ref.read(cloudSyncProvider).loadOlderMessages();
+    } catch (error) {
+      failure = error.toString();
+    } finally {
+      // Hata/success ne olursa olsun spinner kapanır.
+      if (mounted) setState(() => _loadingOlder = false);
+    }
     if (!mounted) return;
-    setState(() => _loadingOlder = false);
+    if (failure != null) {
+      _snack('Geçmiş yüklenemedi · bağlantıyı kontrol et');
+      return;
+    }
     if (added < 0) {
       _snack('Önce Ayarlar’dan Supabase bağlantısını kur ☁️');
     } else if (added == 0) {
@@ -150,6 +238,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _deleteMessage(ChatMessage message) {
+    if (message.senderId != ref.read(gameProvider).activePartnerId) return;
     ref.read(gameProvider.notifier).deleteMessage(message.id);
     if (_replyTarget?.id == message.id) {
       setState(() => _replyTarget = null);
@@ -250,9 +339,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       borderRadius: AppRadii.pillAll,
                       onTap: () {
                         Navigator.of(sheetContext).pop();
-                        ref
+                        final bool ok = ref
                             .read(gameProvider.notifier)
                             .reactToMessage(message.id, emoji);
+                        if (ok) {
+                          unawaited(
+                            ref
+                                .read(cloudSyncProvider)
+                                .toggleMessageReaction(message.id, emoji),
+                          );
+                        }
                       },
                       child: Padding(
                         padding: const EdgeInsets.all(AppSpacing.sm),
@@ -291,8 +387,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               leading: const Text('✏️', style: TextStyle(fontSize: 20)),
               title: const Text('Düzenle'),
               enabled:
-                  message.senderId ==
-                      ref.read(gameProvider).activePartnerId &&
+                  message.senderId == ref.read(gameProvider).activePartnerId &&
                   !message.hasMedia &&
                   message.text.trim().isNotEmpty,
               onTap: () {
@@ -304,6 +399,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               key: const Key('chat-action-copy'),
               leading: const Text('📋', style: TextStyle(fontSize: 20)),
               title: const Text('Kopyala'),
+              // Kopyalanacak metin yoksa (örn. yalnızca video) gizlenir.
+              enabled:
+                  message.text.trim().isNotEmpty ||
+                  (message.photoCaption ?? '').trim().isNotEmpty,
               onTap: () {
                 Navigator.of(sheetContext).pop();
                 _copyMessage(message);
@@ -314,6 +413,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               leading: const Text('🗑️', style: TextStyle(fontSize: 20)),
               title: const Text('Sil'),
               textColor: AppColors.danger,
+              // Yalnızca kendi mesajların silinebilir.
+              enabled:
+                  message.senderId == ref.read(gameProvider).activePartnerId,
               onTap: () {
                 Navigator.of(sheetContext).pop();
                 _deleteMessage(message);
@@ -362,12 +464,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (choice.action == ChatMediaAction.scheduleProof) {
       final ChatMessage? proof = ref
           .read(gameProvider.notifier)
-          .sendScheduleProof();
+          .sendScheduleProof(
+            partnerId: ref.read(gameProvider).activePartnerId,
+            replyTo: _replyTarget,
+          );
       if (proof == null) {
         _snack('Aktif ya da sıradaki plan bulunamadı 📅');
         return;
       }
-      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
+      if (!mounted) return;
+      HapticFeedback.lightImpact();
+      setState(() => _replyTarget = null);
+      _snack('📅 Plan kanıtı sohbete eklendi');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _jumpToEnd();
+      });
       return;
     }
 
@@ -451,6 +562,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await _sendPickedMedia(picked, caption);
     } on MediaPickException catch (error) {
       _snack(error.message);
+    } catch (error) {
+      // Beklenmeyen platform hataları kullanıcı akışını kilitlemesin.
+      _snack('Medya eklenemedi · tekrar dene');
+      debugPrint('[ChatScreen] pickImage: $error');
     }
   }
 
@@ -467,12 +582,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await _sendPickedMedia(picked, caption);
     } on MediaPickException catch (error) {
       _snack(error.message);
+    } catch (error) {
+      _snack('Video eklenemedi · tekrar dene');
+      debugPrint('[ChatScreen] pickVideo: $error');
     }
   }
 
   Future<void> _sendPickedMedia(PickedMedia picked, String caption) async {
     String source = picked.source;
-    final bytes = picked.bytes;
+    final Uint8List? bytes = picked.bytes;
     if (bytes != null) {
       _snack(
         picked.isVideo ? '🎥 Video hazırlanıyor…' : '📸 Fotoğraf hazırlanıyor…',
@@ -481,13 +599,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           .read(cloudSyncProvider)
           .uploadMediaBytes(
             bytes: bytes,
-            fileName: picked.isVideo ? 'clip.mp4' : 'photo.jpg',
-            contentType: picked.isVideo ? 'video/mp4' : 'image/jpeg',
+            // Gerçek ad + MIME korunur (iOS HEIC / Android webp vb.).
+            fileName: picked.uploadFileName,
+            contentType: picked.contentType,
           );
       if (uploaded != null) source = uploaded;
     }
     if (!mounted) return;
-    if (picked.requiresUpload && (source.startsWith('data:') || source.isEmpty)) {
+    if (picked.requiresUpload &&
+        (source.startsWith('data:') || source.trim().isEmpty)) {
       // v6: Web'de 250 KB üstü medya localStorage'a gömülmez. Yükleme
       // başarısızsa mesaj gönderilmez; kullanıcıya net yönlendirme verilir.
       _snack('☁️ Yükleme tamamlanamadı · Supabase bağlantısını kontrol et.');
@@ -507,7 +627,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     HapticFeedback.lightImpact();
     setState(() => _replyTarget = null);
     _snack(picked.isVideo ? '🎥 Video gönderildi' : '📸 Fotoğraf gönderildi');
-    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _jumpToEnd();
+    });
   }
 
   @override
@@ -517,19 +639,61 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     ref.listen<GameState>(gameProvider, (GameState? previous, GameState next) {
       if (previous == null) return;
+      final List<ChatMessage> before = previous.couple.messages;
+      final List<ChatMessage> now = next.couple.messages;
+      final String? previousLastId = before.isEmpty ? null : before.last.id;
+      final String? currentLastId = now.isEmpty ? null : now.last.id;
+      // Yalnızca **yeni bir son mesaj** geldiğinde en alta kaydır: silme veya
+      // okundu güncellemesi kullanıcıyı aşağı fırlatmaz.
+      final bool grew = now.length > before.length;
       if (!_loadingOlder &&
-          previous.couple.messages.length != next.couple.messages.length) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
+          grew &&
+          currentLastId != null &&
+          currentLastId != previousLastId) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _jumpToEnd();
+        });
       }
-      final bool hasUnread = next.couple.messages.any(
+      final bool hasUnread = now.any(
         (ChatMessage message) =>
             message.senderId != next.activePartnerId && !message.isRead,
       );
-      if (hasUnread) {
-        WidgetsBinding.instance.addPostFrameCallback(
-          (_) => ref.read(gameProvider.notifier).markConversationRead(),
-        );
+      if (hasUnread && _chatTabActive) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _markConversationRead();
+        });
       }
+    });
+
+    // Kullanıcı sohbet sekmesine geçtiğinde bekleyen mesajlar okundu sayılır.
+    ref.listen<int>(shellTabProvider, (int? previous, int next) {
+      if (next != ShellTabController.chat) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _markConversationRead(force: true);
+      });
+    });
+
+    ref.listen<String?>(chatFocusMessageProvider, (
+      String? previous,
+      String? next,
+    ) {
+      if (next == null || next.trim().isEmpty) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _focusMessage(next);
+        ref.read(chatFocusMessageProvider.notifier).clear();
+      });
+    });
+
+    ref.listen<PushResult?>(pushHealthProvider, (
+      PushResult? previous,
+      PushResult? next,
+    ) {
+      if (next == null || next.ok) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _snack(next.message);
+      });
     });
 
     final String partnerName = CouplePalette.nameOf(
@@ -588,15 +752,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   onSend: _send,
                   onPhoto: _pickPhoto,
                   onNudge: () {
-                    final ChatMessage? message = ref
-                        .read(gameProvider.notifier)
-                        .nudgePartner();
-                    if (message == null) return;
+                    final GameController controller = ref.read(
+                      gameProvider.notifier,
+                    );
+                    final ChatMessage? message = controller.nudgePartner();
+                    if (message == null) {
+                      final Duration remaining = controller
+                          .nudgeCooldownRemaining();
+                      _snack(
+                        remaining.inSeconds > 0
+                            ? '⏳ Dürtme bekleme süresi · '
+                                  '${remaining.inSeconds} sn sonra tekrar dene'
+                            : 'Dürtme gönderilemedi · tekrar dene',
+                      );
+                      return;
+                    }
                     HapticFeedback.lightImpact();
                     _snack('💫 Dürtme gönderildi · +10 XP');
-                    WidgetsBinding.instance.addPostFrameCallback(
-                      (_) => _jumpToEnd(),
-                    );
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) _jumpToEnd();
+                    });
                   },
                   onLoveNote: () {
                     final ChatMessage? message = ref
@@ -633,7 +808,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String _dayLabel(DateTime day) {
     final DateTime now = widget.now ?? DateTime.now();
     final DateTime today = DateTime(now.year, now.month, now.day);
-    final int diff = today.difference(day).inDays;
+    final DateTime local = day.toLocal();
+    final int diff = today.difference(local).inDays;
     if (diff == 0) return 'Bugün';
     if (diff == 1) return 'Dün';
     const List<String> months = <String>[
@@ -650,7 +826,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       'Kasım',
       'Aralık',
     ];
-    return '${day.day} ${months[day.month - 1]}';
+    // Farklı yıldaki mesajlarda yıl da yazılır (2025 ↔ 2026 ayrımı kaybolmaz).
+    final String base = '${local.day} ${months[local.month - 1]}';
+    return local.year == today.year ? base : '$base ${local.year}';
   }
 
   Widget _buildMessages(GameState state, CoupleState couple) {
@@ -673,11 +851,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final List<Object> rows = <Object>[];
     DateTime? lastDay;
     for (final ChatMessage message in visible) {
-      final DateTime day = DateTime(
-        message.createdAt.year,
-        message.createdAt.month,
-        message.createdAt.day,
-      );
+      // Cihaz saat diliminde gün ayırıcısı (UTC ile ertesi güne kaymaz).
+      final DateTime at = message.createdAt.toLocal();
+      final DateTime day = DateTime(at.year, at.month, at.day);
       if (lastDay == null || day != lastDay) {
         rows.add(day);
         lastDay = day;
@@ -715,6 +891,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             key: ValueKey<String>('chat-${message.id}'),
             message: message,
             isMine: message.senderId == state.activePartnerId,
+            highlighted: message.id == _focusedMessageId,
             onLike: () =>
                 ref.read(gameProvider.notifier).likeMessage(message.id),
             onOpen: () => showPhotoLightbox(context, message),
@@ -784,11 +961,13 @@ class _MessageBubble extends StatelessWidget {
     required this.onOpen,
     required this.onLongPress,
     required this.onSwipeReply,
+    this.highlighted = false,
     super.key,
   });
 
   final ChatMessage message;
   final bool isMine;
+  final bool highlighted;
   final VoidCallback onLike;
   final VoidCallback onOpen;
   final VoidCallback onLongPress;
@@ -796,8 +975,10 @@ class _MessageBubble extends StatelessWidget {
 
   static String _two(int value) => value.toString().padLeft(2, '0');
 
-  String get _timeLabel =>
-      '${_two(message.createdAt.hour)}:${_two(message.createdAt.minute)}';
+  String get _timeLabel {
+    final DateTime local = message.createdAt.toLocal();
+    return '${_two(local.hour)}:${_two(local.minute)}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -851,10 +1032,22 @@ class _MessageBubble extends StatelessWidget {
                         bottomLeft: Radius.circular(isMine ? 18 : 6),
                         bottomRight: Radius.circular(isMine ? 6 : 18),
                       ),
-                      border: isMine
+                      border: highlighted
+                          ? Border.all(color: CouplePalette.ceyda, width: 2.4)
+                          : isMine
                           ? null
                           : Border.all(color: AppColors.border),
-                      boxShadow: AppShadows.card,
+                      boxShadow: highlighted
+                          ? <BoxShadow>[
+                              BoxShadow(
+                                color: CouplePalette.ceyda.withValues(
+                                  alpha: 0.35,
+                                ),
+                                blurRadius: 18,
+                                spreadRadius: 1,
+                              ),
+                            ]
+                          : AppShadows.card,
                     ),
                     child: _bubbleContent(hasMedia, textColor, mutedColor),
                   ),

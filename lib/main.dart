@@ -25,20 +25,36 @@ Future<void> main() async {
   // `flutter_secure_storage` içinden okunur.
   final AppSettingsStore settingsStore = await LocalAppSettingsStore.open();
   final AppSettings settings = settingsStore.load();
+  final String loadError = store is LocalGameStore
+      ? (store.lastLoadError ?? '')
+      : '';
   // Hediye modu: depo boşsa veya yalnızca yarım kalmış (onboarding
   // tamamlanmamış) bir kayıt varsa çift sürümü tohumu yazılır.
   final GameState? existing = store.load();
-  if (existing == null || (!existing.isCoupleEdition && !existing.isOnboarded)) {
-    await store.save(CoupleBootstrap.initialState());
-  } else if (!existing.isCoupleEdition && existing.isOnboarded) {
-    // v6: eski tek oyunculu kayıt **ezilmez**; cihaz sahibinin koltuğuna
-    // taşınır (profil, XP, görevler ve sohbet korunur).
-    await store.save(
-      CoupleBootstrap.migrateFromLegacy(
-        existing,
-        deviceRole: settings.deviceRole,
-      ),
-    );
+  // Bozuk veri durumunda sessiz sıfırlama YAPILMAZ; kullanıcıya kurtarma /
+  // temiz başlatma seçeneği `_RecoveryGate` ile sunulur.
+  if (loadError.isEmpty) {
+    if (existing == null ||
+        (!existing.isCoupleEdition && !existing.isOnboarded)) {
+      // Kritik ilk kayıt: debounce beklemeden diske yazılır.
+      await store.save(CoupleBootstrap.initialState(), flush: true);
+    } else if (!existing.isCoupleEdition && existing.isOnboarded) {
+      // v6: eski tek oyunculu kayıt **ezilmez**; cihaz sahibinin koltuğuna
+      // taşınır (profil, XP, görevler ve sohbet korunur).
+      await store.save(
+        CoupleBootstrap.migrateFromLegacy(
+          existing,
+          deviceRole: settings.deviceRole,
+        ),
+        flush: true,
+      );
+    }
+  }
+  // Güvenli depo (Keychain/Keystore) açılamadıysa PIN kilidi sessizce
+  // varsayılana dönmez; nedeni loglanır (ayarlar ekranı da gösterir).
+  final String? settingsError = settingsStore.lastError;
+  if (settingsError != null && settingsError.isNotEmpty) {
+    debugPrint('[main] $settingsError');
   }
   runApp(
     ProviderScope(
@@ -46,7 +62,7 @@ Future<void> main() async {
         gameStoreProvider.overrideWithValue(store),
         appSettingsStoreProvider.overrideWithValue(settingsStore),
       ],
-      child: const LevelUpApp(),
+      child: LevelUpApp(loadError: loadError.isEmpty ? null : loadError),
     ),
   );
 }
@@ -57,7 +73,10 @@ Future<void> main() async {
 /// tamamlandıysa alt sekmeli kabuk ([AppShell]). `GameState` değiştiğinde
 /// geçiş animasyonlu olur.
 class LevelUpApp extends StatelessWidget {
-  const LevelUpApp({super.key});
+  const LevelUpApp({this.loadError, super.key});
+
+  /// Açılışta `LocalGameStore.lastLoadError` varsa kurtarma seçeneği sunulur.
+  final String? loadError;
 
   @override
   Widget build(BuildContext context) {
@@ -68,9 +87,67 @@ class LevelUpApp extends StatelessWidget {
       scrollBehavior: const AppScrollBehavior(),
       builder: (BuildContext context, Widget? child) =>
           InAppNotificationHost(child: child ?? const SizedBox.shrink()),
-      home: const AppServices(child: _RootGate()),
+      home: AppServices(
+        child: _RecoveryGate(loadError: loadError, child: const _RootGate()),
+      ),
     );
   }
+}
+
+/// Bozuk veri saptandığında sessiz sıfırlama yapmaz; kullanıcıya seçenek sunar.
+class _RecoveryGate extends ConsumerStatefulWidget {
+  const _RecoveryGate({required this.child, this.loadError});
+
+  final Widget child;
+  final String? loadError;
+
+  @override
+  ConsumerState<_RecoveryGate> createState() => _RecoveryGateState();
+}
+
+class _RecoveryGateState extends ConsumerState<_RecoveryGate> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.loadError != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _offerRecovery());
+    }
+  }
+
+  Future<void> _offerRecovery() async {
+    if (!mounted) return;
+    final bool reset =
+        await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext dialogContext) => AlertDialog(
+            title: const Text('Veri kurtarma gerekli'),
+            content: Text(
+              'Kayıt okunamadı. Orijinal veri güvenli yedeğe alındı.\n\n'
+              '${widget.loadError}',
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Şimdilik devam'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                ),
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Temiz başlat'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!mounted || !reset) return;
+    await ref.read(gameProvider.notifier).resetJourney();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _RootGate extends ConsumerWidget {

@@ -11,26 +11,28 @@ void main() {
   group('LocalGameStore v6', () {
     setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-    test('save gerçek disk yazımı bitince resolve olur ve yeniden yüklenir',
-        () async {
-      final LocalGameStore store = await LocalGameStore.open();
-      final GameState state = CoupleBootstrap.initialState();
+    test(
+      'save gerçek disk yazımı bitince resolve olur ve yeniden yüklenir',
+      () async {
+        final LocalGameStore store = await LocalGameStore.open();
+        final GameState state = CoupleBootstrap.initialState();
 
-      await store.save(state);
-      // Debounce sonrası gerçek yazım tamamlandı.
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      final String? raw = prefs.getString(AppConstants.cacheGameState);
-      expect(raw, isNotNull);
-      expect(raw, contains('schema_version'));
-      expect(raw, contains('"state"'));
+        await store.save(state);
+        // Debounce sonrası gerçek yazım tamamlandı.
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        final String? raw = prefs.getString(AppConstants.cacheGameState);
+        expect(raw, isNotNull);
+        expect(raw, contains('schema_version'));
+        expect(raw, contains('"state"'));
 
-      final LocalGameStore reopened = await LocalGameStore.open();
-      expect(reopened.load()?.isCoupleEdition, isTrue);
-      expect(
-        reopened.load()?.couple.messages.length,
-        state.couple.messages.length,
-      );
-    });
+        final LocalGameStore reopened = await LocalGameStore.open();
+        expect(reopened.load()?.isCoupleEdition, isTrue);
+        expect(
+          reopened.load()?.couple.messages.length,
+          state.couple.messages.length,
+        );
+      },
+    );
 
     test('bozuk JSON yedeğe taşınır, uygulama temiz açılır', () async {
       SharedPreferences.setMockInitialValues(<String, Object>{

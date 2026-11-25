@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -116,11 +118,26 @@ final class NotificationService {
   FlutterLocalNotificationsPlugin? _plugin;
   bool _ready = false;
   bool _permissionRequested = false;
+  bool? _exactAlarmAllowed;
+  Future<bool>? _initFuture;
+  Future<void> _planSyncQueue = Future<void>.value();
+  String? _pendingLaunchPayload;
+  void Function(String? payload)? _onNotificationTap;
 
   /// Bildirime dokunulduğunda payload'ı uygulamaya taşır.
   ///
-  /// AppServices bu köprüyü Sohbet sekmesine yönlendirmek için kullanır.
-  void Function(String? payload)? onNotificationTap;
+  /// Dinleyici bağlanmadan önce gelen soğuk başlatma payload'ı tamponda
+  /// tutulur ve setter atandığı anda bir kez teslim edilir.
+  void Function(String? payload)? get onNotificationTap => _onNotificationTap;
+
+  set onNotificationTap(void Function(String? payload)? callback) {
+    _onNotificationTap = callback;
+    final String? pending = _pendingLaunchPayload;
+    if (callback != null && pending != null) {
+      _pendingLaunchPayload = null;
+      callback(pending);
+    }
+  }
 
   bool get isReady => _ready;
 
@@ -161,9 +178,20 @@ final class NotificationService {
 
   /// Uygulama açılışında bir kez çağrılır. Başarısız olsa bile uygulama
   /// çalışmaya devam eder (offline-first).
-  Future<bool> init() async {
-    if (_ready) return true;
-    if (!isSupportedPlatform) return false;
+  ///
+  /// Devam eden `Future` paylaşılır; aynı anda gelen birden çok `init()`
+  /// çağrısı ayrı ayrı plugin açmaz.
+  Future<bool> init() {
+    if (_ready) return Future<bool>.value(true);
+    if (!isSupportedPlatform) return Future<bool>.value(false);
+    final Future<bool>? pending = _initFuture;
+    if (pending != null) return pending;
+    final Future<bool> future = _doInit();
+    _initFuture = future;
+    return future;
+  }
+
+  Future<bool> _doInit() async {
     try {
       tzdata.initializeTimeZones();
       try {
@@ -195,7 +223,12 @@ final class NotificationService {
           macOS: darwin,
         ),
         onDidReceiveNotificationResponse: (NotificationResponse response) {
-          onNotificationTap?.call(response.payload);
+          final String? payload = response.payload;
+          if (_onNotificationTap != null) {
+            _onNotificationTap!(payload);
+          } else {
+            _pendingLaunchPayload = payload;
+          }
         },
       );
 
@@ -222,7 +255,12 @@ final class NotificationService {
       final NotificationAppLaunchDetails? launchDetails = await plugin
           .getNotificationAppLaunchDetails();
       if (launchDetails?.didNotificationLaunchApp ?? false) {
-        onNotificationTap?.call(launchDetails?.notificationResponse?.payload);
+        final String? payload = launchDetails?.notificationResponse?.payload;
+        if (_onNotificationTap != null) {
+          _onNotificationTap!(payload);
+        } else {
+          _pendingLaunchPayload = payload;
+        }
       }
       lastError = null;
       return true;
@@ -230,6 +268,70 @@ final class NotificationService {
       lastError = error.toString();
       _ready = false;
       return false;
+    }
+  }
+
+  /// Bildirim izni şu an verilmiş mi? (Ayarlar sağlık paneli için)
+  Future<bool> hasPermission() async {
+    if (!await ensureInitialized() || _plugin == null) return false;
+    try {
+      final AndroidFlutterLocalNotificationsPlugin? android = _plugin!
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      if (android != null) {
+        return await android.areNotificationsEnabled() ?? false;
+      }
+      final IOSFlutterLocalNotificationsPlugin? ios = _plugin!
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      if (ios != null) {
+        final NotificationsEnabledOptions? options = await ios
+            .checkPermissions();
+        return options?.isEnabled ?? options?.isProvisionalEnabled ?? false;
+      }
+      final MacOSFlutterLocalNotificationsPlugin? macos = _plugin!
+          .resolvePlatformSpecificImplementation<
+            MacOSFlutterLocalNotificationsPlugin
+          >();
+      if (macos != null) {
+        final NotificationsEnabledOptions? options = await macos
+            .checkPermissions();
+        return options?.isEnabled ?? options?.isProvisionalEnabled ?? false;
+      }
+    } catch (error) {
+      lastError = error.toString();
+    }
+    return false;
+  }
+
+  /// Android 14+ exact alarm izni varsa `exactAllowWhileIdle`, aksi hâlde
+  /// çökmeyen `inexactAllowWhileIdle` kullanılır.
+  Future<AndroidScheduleMode> _androidScheduleMode() async {
+    if (defaultTargetPlatform != TargetPlatform.android || _plugin == null) {
+      return AndroidScheduleMode.inexactAllowWhileIdle;
+    }
+    final bool? cached = _exactAlarmAllowed;
+    if (cached != null) {
+      return cached
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexactAllowWhileIdle;
+    }
+    try {
+      final AndroidFlutterLocalNotificationsPlugin? android = _plugin!
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      final bool allowed =
+          await android?.canScheduleExactNotifications() ?? false;
+      _exactAlarmAllowed = allowed;
+      return allowed
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexactAllowWhileIdle;
+    } catch (_) {
+      _exactAlarmAllowed = false;
+      return AndroidScheduleMode.inexactAllowWhileIdle;
     }
   }
 
@@ -421,11 +523,34 @@ final class NotificationService {
   Future<int> syncPlanReminders({
     required String partnerId,
     required List<ScheduleBlock> blocks,
+  }) {
+    // Eşzamanlı plan yenilemeleri seri kuyrukla korunur; son çağrı kazanır ve
+    // iptal/yeniden kurma işlemleri iç içe girmez.
+    final Completer<int> completer = Completer<int>();
+    _planSyncQueue = _planSyncQueue.catchError((Object _) {}).then((_) async {
+      try {
+        completer.complete(
+          await _syncPlanRemindersInternal(
+            partnerId: partnerId,
+            blocks: blocks,
+          ),
+        );
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<int> _syncPlanRemindersInternal({
+    required String partnerId,
+    required List<ScheduleBlock> blocks,
   }) async {
     // v6: bellek içi küme yerine kalıcı bekleyen bildirimler iptal edilir.
     await cancelPlanReminders();
     if (!await ensureInitialized() || _plugin == null) return 0;
     await _ensurePermission();
+    final AndroidScheduleMode scheduleMode = await _androidScheduleMode();
     int scheduled = 0;
     for (final ScheduleBlock block in blocks) {
       if (block.partnerId != partnerId || block.title.trim().isEmpty) continue;
@@ -444,7 +569,7 @@ final class NotificationService {
           _details,
           uiLocalNotificationDateInterpretation:
               UILocalNotificationDateInterpretation.absoluteTime,
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          androidScheduleMode: scheduleMode,
           matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
           payload: 'plan:${block.id}',
         );
@@ -464,13 +589,15 @@ final class NotificationService {
   Future<int> cancelPlanReminders() => cancelPendingInRange(
     start: planIdStart,
     end: planIdStart + planIdSize,
-    matches: (String? payload) => payload == null || payload.startsWith('plan:'),
+    matches: (String? payload) =>
+        payload == null || payload.startsWith('plan:'),
   );
 
   /// Her akşam [hour]:[minute]'te nazik puanlama hatırlatıcısı.
   Future<bool> scheduleDailyCheckin({int hour = 21, int minute = 30}) async {
     if (!await ensureInitialized() || _plugin == null) return false;
     await _ensurePermission();
+    final AndroidScheduleMode scheduleMode = await _androidScheduleMode();
     try {
       final DateTime now = DateTime.now();
       DateTime when = DateTime(now.year, now.month, now.day, hour, minute);
@@ -485,7 +612,7 @@ final class NotificationService {
         _details,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        androidScheduleMode: scheduleMode,
         matchDateTimeComponents: DateTimeComponents.time,
         payload: 'checkin',
       );
@@ -512,6 +639,7 @@ final class NotificationService {
   }) async {
     if (!await ensureInitialized() || _plugin == null) return 0;
     await _ensurePermission();
+    final AndroidScheduleMode scheduleMode = await _androidScheduleMode();
     final DateTime at = now ?? DateTime.now();
     int scheduled = 0;
     for (int i = 0; i < dates.length; i++) {
@@ -550,7 +678,7 @@ final class NotificationService {
             _details,
             uiLocalNotificationDateInterpretation:
                 UILocalNotificationDateInterpretation.absoluteTime,
-            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+            androidScheduleMode: scheduleMode,
             matchDateTimeComponents: DateTimeComponents.dateAndTime,
             payload: 'special:${date.id}',
           );

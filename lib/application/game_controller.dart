@@ -1,11 +1,9 @@
-import 'dart:async';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/game_store.dart';
 import '../domain/entities/entities.dart';
 import '../domain/services/couple_efficiency_engine.dart';
-import '../services/app_settings.dart';
 import 'controllers/couple_chat_controller.dart';
 import 'controllers/couple_goals_controller.dart';
 import 'controllers/couple_sync_controller.dart';
@@ -57,10 +55,7 @@ final class GameController extends Notifier<GameState>
   }
 
   @override
-  void commit(
-    GameState next, {
-    MutationOrigin origin = MutationOrigin.local,
-  }) {
+  void commit(GameState next, {MutationOrigin origin = MutationOrigin.local}) {
     if (identical(next, state)) return;
     _lastOrigin = origin;
     if (origin == MutationOrigin.local) _localRevision++;
@@ -135,7 +130,11 @@ final class GameController extends Notifier<GameState>
 
   void toggleActivePartner() => sync.toggleActivePartner();
 
-  void enforceDeviceOwner(AppSettings settings) => sync.enforceDeviceOwner();
+  /// Cihaz sahibi kilidi (`AppSettings`) aktifse partneri sahibe sabitler.
+  ///
+  /// Ayar nesnesi artık parametre olarak taşınmaz: `sync` katmanı güncel
+  /// ayarları kendi okur (eski imza yanlışlıkla eski bir kopyayı uyguluyordu).
+  void enforceDeviceOwner() => sync.enforceDeviceOwner();
 
   void applyRemoteState(GameState remote, {String? deviceRole}) =>
       sync.applyRemoteState(remote, deviceRole: deviceRole);
@@ -188,8 +187,15 @@ final class GameController extends Notifier<GameState>
     replyTo: replyTo,
   );
 
-  ChatMessage? sendScheduleProof({String? partnerId, String? blockId}) =>
-      chat.sendScheduleProof(partnerId: partnerId, blockId: blockId);
+  ChatMessage? sendScheduleProof({
+    String? partnerId,
+    String? blockId,
+    ChatMessage? replyTo,
+  }) => chat.sendScheduleProof(
+    partnerId: partnerId,
+    blockId: blockId,
+    replyTo: replyTo,
+  );
 
   bool deleteMessage(
     String messageId, {
@@ -211,14 +217,19 @@ final class GameController extends Notifier<GameState>
   bool mergeRemoteMessageUpdate(ChatMessage message) =>
       chat.mergeRemoteMessageUpdate(message);
 
-  int mergeRemoteMessages(List<ChatMessage> incoming) =>
-      chat.mergeRemoteMessages(incoming);
+  int mergeRemoteMessages(
+    List<ChatMessage> incoming, {
+    MutationOrigin origin = MutationOrigin.remote,
+  }) => chat.mergeRemoteMessages(incoming, origin: origin);
 
   void patchMessage(ChatMessage message) => chat.patchMessage(message);
 
   void likeMessage(String messageId) => chat.likeMessage(messageId);
 
   ChatMessage? nudgePartner() => chat.nudgePartner();
+
+  /// Dürtme bekleme süresinden kalan saniye (0 → gönderilebilir).
+  Duration nudgeCooldownRemaining() => chat.nudgeCooldownRemaining();
 
   ChatMessage? sendLoveNote() => chat.sendLoveNote();
 
@@ -250,17 +261,31 @@ final class GameController extends Notifier<GameState>
   void _persist() {
     final GameStore store = ref.read(gameStoreProvider);
     final GameState snapshot = state;
-    // Web'de localStorage kotası dolsa bile uygulama çalışmaya devam eder.
-    unawaited(_saveQuietly(store, snapshot));
+    // Seri kuyruk: her yazma bir öncekinin bitmesini bekler. Aksi hâlde hızlı
+    // art arda mutasyonlarda eski bir anlık görüntü sonuncuyu ezebiliyordu.
+    _writeChain = _writeChain.then((_) async {
+      try {
+        await store.save(snapshot);
+        _lastStorageError = null;
+      } catch (error) {
+        // Web'de localStorage kotası dolsa bile uygulama çalışmaya devam eder;
+        // ancak hata sessizce yutulmaz (teşhis paneli gösterebilir).
+        _lastStorageError = 'Oyun durumu kaydedilemedi: $error';
+        debugPrint('[GameController] $_lastStorageError');
+      }
+    });
   }
 
-  Future<void> _saveQuietly(GameStore store, GameState snapshot) async {
-    try {
-      await store.save(snapshot);
-    } catch (_) {
-      // Disk / kota hataları kullanıcı akışını kesmez.
-    }
-  }
+  Future<void> _writeChain = Future<void>.value();
+
+  String? _lastStorageError;
+
+  /// Son kalıcılık hatası (yoksa `null`).
+  String? get lastStorageError => _lastStorageError;
+
+  /// Bekleyen yazımların bitmesini bekler (uygulama kapanışı / test).
+  @override
+  Future<void> flushWrites() => _writeChain;
 }
 
 /// Tüm ekranların dinlediği tek provider.
@@ -270,40 +295,42 @@ final NotifierProvider<GameController, GameState> gameProvider =
 // ── Modül provider'ları (granular erişim) ──────────────────────────────────
 
 final Provider<QuestController> questControllerProvider =
-    Provider<QuestController>((Ref ref) => ref.read(gameProvider.notifier).quests);
+    Provider<QuestController>(
+      (Ref ref) => ref.watch(gameProvider.notifier).quests,
+    );
 
 final Provider<DevelopmentController> developmentControllerProvider =
     Provider<DevelopmentController>(
-      (Ref ref) => ref.read(gameProvider.notifier).development,
+      (Ref ref) => ref.watch(gameProvider.notifier).development,
     );
 
 final Provider<CoupleChatController> coupleChatControllerProvider =
     Provider<CoupleChatController>(
-      (Ref ref) => ref.read(gameProvider.notifier).chat,
+      (Ref ref) => ref.watch(gameProvider.notifier).chat,
     );
 
 final Provider<CoupleGoalsController> coupleGoalsControllerProvider =
     Provider<CoupleGoalsController>(
-      (Ref ref) => ref.read(gameProvider.notifier).goals,
+      (Ref ref) => ref.watch(gameProvider.notifier).goals,
     );
 
 final Provider<CoupleSyncController> coupleSyncControllerProvider =
     Provider<CoupleSyncController>(
-      (Ref ref) => ref.read(gameProvider.notifier).sync,
+      (Ref ref) => ref.watch(gameProvider.notifier).sync,
     );
 
 // ── Granular seçiciler (gereksiz rebuild'i önler) ─────────────────────────
 
 /// Kısayol: onboarding tamamlandı mı?
 final Provider<bool> isOnboardedProvider = Provider<bool>(
-  (Ref ref) => ref.watch(
-    gameProvider.select((GameState state) => state.isOnboarded),
-  ),
+  (Ref ref) =>
+      ref.watch(gameProvider.select((GameState state) => state.isOnboarded)),
 );
 
 /// Kısayol: aktif profil (onboarding öncesi `null`).
 final Provider<UserProfile?> profileProvider = Provider<UserProfile?>(
-  (Ref ref) => ref.watch(gameProvider.select((GameState state) => state.profile)),
+  (Ref ref) =>
+      ref.watch(gameProvider.select((GameState state) => state.profile)),
 );
 
 /// Aktif partnerin tam verisi (görevler dahil).
@@ -313,11 +340,16 @@ final Provider<PartnerData> activePartnerProvider = Provider<PartnerData>(
 );
 
 /// Ekranda olmayan partnerin profili (üst bar / karşılaştırma kartları).
-final Provider<UserProfile?> partnerProfileProvider = Provider<UserProfile?>(
-  (Ref ref,
+final Provider<UserProfile?> partnerProfileProvider = Provider<UserProfile?>((
+  Ref ref,
 ) {
-  final GameState state = ref.watch(gameProvider);
-  return state.partnerData(CouplePartner.other(state.activePartnerId))?.profile;
+  return ref.watch(
+    gameProvider.select(
+      (GameState state) => state
+          .partnerData(CouplePartner.other(state.activePartnerId))
+          ?.profile,
+    ),
+  );
 });
 
 /// Ortak çift durumu (sohbet, rubrik, bucket list).
@@ -328,7 +360,8 @@ final Provider<CoupleState> coupleStateProvider = Provider<CoupleState>(
 
 /// Yalnızca görev listesi — görev ekranı sohbet değişiminde rebuild olmaz.
 final Provider<List<Quest>> questsProvider = Provider<List<Quest>>(
-  (Ref ref) => ref.watch(gameProvider.select((GameState state) => state.quests)),
+  (Ref ref) =>
+      ref.watch(gameProvider.select((GameState state) => state.quests)),
 );
 
 /// Yalnızca sohbet mesajları.
@@ -404,8 +437,6 @@ final Provider<CoupleDuelResult> duelProvider = Provider<CoupleDuelResult>((
 /// Sıradaki aşk notu (doğum günü üreticisi).
 final Provider<String> loveNoteProvider = Provider<String>(
   (Ref ref) => ref.watch(
-    gameProvider.select(
-      (GameState state) => state.couple.currentLoveNote,
-    ),
+    gameProvider.select((GameState state) => state.couple.currentLoveNote),
   ),
 );

@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/game_controller.dart';
+import '../application/game_mutation.dart';
 import '../application/game_state.dart';
 import '../application/pin_lock_controller.dart';
 import '../application/shell_controller.dart';
@@ -12,6 +14,7 @@ import '../domain/entities/entities.dart';
 import '../presentation/widgets/in_app_notification_banner.dart';
 import '../services/app_settings.dart';
 import '../services/cloud_sync_coordinator.dart';
+import '../services/message_delivery_policy.dart';
 import '../services/notification_service.dart';
 import '../services/push_service.dart';
 
@@ -36,6 +39,7 @@ class _AppServicesState extends ConsumerState<AppServices>
   String _planSignature = '';
   Set<String> _openedCapsules = <String>{};
   bool _booted = false;
+  AppLifecycleState _lifecycle = AppLifecycleState.resumed;
 
   @override
   void initState() {
@@ -46,6 +50,12 @@ class _AppServicesState extends ConsumerState<AppServices>
     NotificationService.instance.onNotificationTap =
         _handleLocalNotificationTap;
     PushService.instance.onNotificationTap = _handlePushTap;
+    PushService.instance.isAppResumed = () =>
+        _lifecycle == AppLifecycleState.resumed;
+    PushService.instance.isRealtimeConnected = () =>
+        ref.read(cloudSyncProvider).isConnected;
+    PushService.instance.refreshMembership = () =>
+        ref.read(cloudSyncProvider).refreshSessionAndMembership();
     unawaited(_bootstrap());
   }
 
@@ -53,15 +63,24 @@ class _AppServicesState extends ConsumerState<AppServices>
     if (!mounted || payload == null) return;
     if (payload.startsWith('chat:')) {
       ref.read(shellTabProvider.notifier).goToChat();
+      ref
+          .read(chatFocusMessageProvider.notifier)
+          .focus(payload.substring('chat:'.length));
     }
   }
 
   void _handlePushTap(Map<String, dynamic> data) {
     if (!mounted) return;
-    if (data['route']?.toString() == 'chat') {
-      ref.read(shellTabProvider.notifier).goToChat();
-    }
+    if (data['route']?.toString() != 'chat') return;
+    ref.read(shellTabProvider.notifier).goToChat();
+    ref
+        .read(chatFocusMessageProvider.notifier)
+        .focus(data['message_id']?.toString());
   }
+
+  bool get _chatVisible =>
+      _lifecycle == AppLifecycleState.resumed &&
+      ref.read(shellTabProvider) == ShellTabController.chat;
 
   @override
   void dispose() {
@@ -90,8 +109,11 @@ class _AppServicesState extends ConsumerState<AppServices>
       // 4 gerçek özel gün: yıllık 20:00 + 09:00 bildirimleri.
       await NotificationService.instance.scheduleSpecialDates();
     }
-    await PushService.instance.initialize(settings);
-    ref.read(gameProvider.notifier).enforceDeviceOwner(settings);
+    await PushService.instance.initialize(
+      settings,
+      requestPermission: settings.wantsNotifications,
+    );
+    ref.read(gameProvider.notifier).enforceDeviceOwner();
     _booted = true;
     if (!mounted) return;
     _syncSchedules(ref.read(gameProvider), ref.read(appSettingsProvider));
@@ -149,14 +171,13 @@ class _AppServicesState extends ConsumerState<AppServices>
       return;
     }
     controller.configureDeviceOwner(picked);
-    ref
-        .read(gameProvider.notifier)
-        .enforceDeviceOwner(ref.read(appSettingsProvider));
+    ref.read(gameProvider.notifier).enforceDeviceOwner();
     unawaited(PushService.instance.initialize(ref.read(appSettingsProvider)));
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycle = state;
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
@@ -184,8 +205,6 @@ class _AppServicesState extends ConsumerState<AppServices>
     bool allowTestPreview = true,
   }) {
     final AppSettings settings = ref.read(appSettingsProvider);
-    if (!settings.messageNotifications) return;
-    if (settings.isQuietAt(DateTime.now())) return;
     final Set<String> known = previous.couple.messages
         .map((ChatMessage message) => message.id)
         .toSet();
@@ -193,19 +212,28 @@ class _AppServicesState extends ConsumerState<AppServices>
       if (known.contains(message.id)) continue;
       final bool own = message.senderId == next.activePartnerId;
       if (!own) {
-        // Gelen mesaj: OS bildirimi + her platformda floating banner.
-        unawaited(NotificationService.instance.showPartnerMessage(message));
-        _showIncomingBanner(message);
+        // Gelen mesaj: alıcının kendi ayarı + sessiz saati + açık sohbet
+        // kontrolü yalnızca bu dalda uygulanır.
+        final bool showLocal = MessageDeliveryPolicy.shouldShowIncomingLocal(
+          settings: settings,
+          now: DateTime.now(),
+          chatVisible: _chatVisible,
+          appResumed: _lifecycle == AppLifecycleState.resumed,
+        );
+        if (showLocal) {
+          unawaited(NotificationService.instance.showPartnerMessage(message));
+          _showIncomingBanner(message);
+        } else if (_chatVisible) {
+          // Sohbet açıkken sistem bildirimi yok; hafif dokunsal geri bildirim.
+          unawaited(HapticFeedback.selectionClick());
+        }
         continue;
       }
       if (allowPush) {
-        // Giden mesaj: partnerin kapalı iPhone'una OneSignal push'u.
-        unawaited(
-          PushService.instance.sendChatMessage(
-            settings: settings,
-            message: message,
-          ),
-        );
+        // Giden mesaj/dürtme: gönderenin sessiz saati veya bildirim kapalı
+        // ayarı bu çağrıyı ASLA engellemez. Coordinator, Supabase satırı
+        // yazıldıktan sonra tam bir kez Edge Function'a iletir.
+        unawaited(ref.read(cloudSyncProvider).requestPushFor(message));
       }
       if (allowTestPreview && !settings.lockToDeviceOwner) {
         // Tek cihaz test modu: profil değiştirip gönderirken de anında görsel
@@ -216,6 +244,8 @@ class _AppServicesState extends ConsumerState<AppServices>
   }
 
   void _showIncomingBanner(ChatMessage message) {
+    // PIN kilitliyken mesaj içeriği asla üst banner'da görünmez.
+    if (ref.read(pinLockProvider)) return;
     final InAppNotificationKind kind;
     final String emoji;
     if (message.hasVideo) {
@@ -243,6 +273,7 @@ class _AppServicesState extends ConsumerState<AppServices>
   }
 
   void _showSentBanner(ChatMessage message, String senderId) {
+    if (ref.read(pinLockProvider)) return;
     final String recipient = CouplePartner.other(senderId);
     final String body = message.text.trim().isNotEmpty
         ? message.text.trim()
@@ -334,6 +365,8 @@ class _AppServicesState extends ConsumerState<AppServices>
     final bool ready = await NotificationService.instance.init();
     if (!ready) return;
     await NotificationService.instance.requestPermissions();
+    // OneSignal izni de yalnızca kullanıcı bildirimleri açtığında istenir.
+    await PushService.instance.initialize(ref.read(appSettingsProvider));
     _planSignature = '';
     if (!mounted) return;
     _syncSchedules(ref.read(gameProvider), ref.read(appSettingsProvider));
@@ -386,19 +419,10 @@ class _AppServicesState extends ConsumerState<AppServices>
 
   /// Plan hatırlatıcısının (başlangıçtan 10 dk önce) sessiz saate denk gelip
   /// gelmediğini hesaplar.
-  static bool _fallsIntoQuietHours(
-    ScheduleBlock block,
-    AppSettings settings,
-  ) {
+  static bool _fallsIntoQuietHours(ScheduleBlock block, AppSettings settings) {
     if (!settings.doNotDisturbEnabled) return false;
     final int reminder = (block.startMinutes - 10).clamp(0, 1439);
-    final DateTime probe = DateTime(
-      2000,
-      1,
-      1,
-      reminder ~/ 60,
-      reminder % 60,
-    );
+    final DateTime probe = DateTime(2000, 1, 1, reminder ~/ 60, reminder % 60);
     return settings.isQuietAt(probe);
   }
 
@@ -407,22 +431,23 @@ class _AppServicesState extends ConsumerState<AppServices>
     ref.listen<GameState>(gameProvider, (GameState? previous, GameState next) {
       if (previous == null) return;
       final CloudSyncCoordinator cloud = ref.read(cloudSyncProvider);
-      if (cloud.isApplyingRemote) {
+      // Deterministik ayrım: bayrak yerine en son mutasyonun kaynağı kullanılır.
+      // `history` (toplu geçmiş) bildirim üretmez; `remote` (tek canlı paket)
+      // yalnızca alıcı bildirimi üretir ve asla echo push tetiklemez.
+      final MutationOrigin origin = ref.read(gameProvider.notifier).lastOrigin;
+      if (origin == MutationOrigin.remote) {
         _handleRemoteActivity(previous, next);
-        // Geçmişin tamamı çekilirken bildirim yağmuru olmaz; tek bir canlı
-        // uzak paket geldiyse floating banner yine gösterilir.
-        if (!cloud.isApplyingHistory) {
-          _handleNewMessages(
-            previous,
-            next,
-            allowPush: false,
-            allowTestPreview: false,
-          );
-        }
-      } else {
+        _handleNewMessages(
+          previous,
+          next,
+          allowPush: false,
+          allowTestPreview: false,
+        );
+        _handleCapsules(previous, next);
+      } else if (origin == MutationOrigin.local) {
         _handleNewMessages(previous, next);
+        _handleCapsules(previous, next);
       }
-      _handleCapsules(previous, next);
       _syncSchedules(next, ref.read(appSettingsProvider));
       cloud.onLocalStateChanged(next);
     });
@@ -443,17 +468,20 @@ class _AppServicesState extends ConsumerState<AppServices>
       if (!hadNotifications && wantsNotifications) {
         unawaited(_ensureNotificationPermission());
       }
+      final bool identityChanged =
+          previous.deviceRole != next.deviceRole ||
+          previous.roomCode != next.roomCode ||
+          previous.partnerModeEnabled != next.partnerModeEnabled;
       if (previous.oneSignalAppId != next.oneSignalAppId) {
         unawaited(PushService.instance.initialize(next));
-      } else if (previous.deviceRole != next.deviceRole) {
+      } else if (identityChanged) {
         unawaited(PushService.instance.syncIdentity(next));
       }
-      if (previous.pinLockEnabled != next.pinLockEnabled) {
-        ref.read(pinLockProvider.notifier).syncWithSettings();
-      }
+      // PIN kilidi `build()` içinde reaktif: ayar değişimi ekranı otomatik
+      // günceller; burada ayrıca senkronize etmek gerekmez.
       if (previous.lockToDeviceOwner != next.lockToDeviceOwner ||
           previous.deviceRole != next.deviceRole) {
-        ref.read(gameProvider.notifier).enforceDeviceOwner(next);
+        ref.read(gameProvider.notifier).enforceDeviceOwner();
       }
       _syncSchedules(ref.read(gameProvider), next);
       unawaited(ref.read(cloudSyncProvider).configure(next));

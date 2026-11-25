@@ -1,0 +1,6 @@
+# Bu dosyayı android/key.properties olarak kopyala ve gerçek değerleri gir.
+# android/key.properties .gitignore içindedir; asla commit edilmez.
+storePassword=change-me
+keyPassword=change-me
+keyAlias=levelup-release
+storeFile=/absolute/path/to/levelup-release.jks

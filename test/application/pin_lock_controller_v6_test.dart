@@ -7,10 +7,11 @@ import 'package:levelup_life/services/biometric_service.dart';
 void main() {
   AppSettings lockedSettings({int grace = 30, bool biometric = false}) =>
       const AppSettings(
-        pinLockEnabled: true,
-        lockGraceSeconds: 30,
-        biometricEnabled: false,
-      ).copyWith(lockGraceSeconds: grace, biometricEnabled: biometric)
+            pinLockEnabled: true,
+            lockGraceSeconds: 30,
+            biometricEnabled: false,
+          )
+          .copyWith(lockGraceSeconds: grace, biometricEnabled: biometric)
           .withPin('2580');
 
   ProviderContainer containerWith(AppSettings settings) {
@@ -69,7 +70,9 @@ void main() {
     expect(container.read(pinLockProvider), isFalse);
 
     controller.onAppPaused(at: start.add(const Duration(minutes: 1)));
-    controller.onAppResumed(at: start.add(const Duration(minutes: 1, seconds: 31)));
+    controller.onAppResumed(
+      at: start.add(const Duration(minutes: 1, seconds: 31)),
+    );
     expect(container.read(pinLockProvider), isTrue);
   });
 
@@ -89,9 +92,7 @@ void main() {
     final ProviderContainer container = containerWith(lockedSettings());
     expect(container.read(pinLockProvider), isTrue);
 
-    container
-        .read(appSettingsProvider.notifier)
-        .setPinLockEnabled(false);
+    container.read(appSettingsProvider.notifier).setPinLockEnabled(false);
     await Future<void>.delayed(Duration.zero);
 
     expect(container.read(pinLockProvider), isFalse);

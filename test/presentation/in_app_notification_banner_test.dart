@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:levelup_life/application/shell_controller.dart';
 import 'package:levelup_life/core/theme/theme.dart';
 import 'package:levelup_life/presentation/widgets/in_app_notification_banner.dart';
+import 'package:levelup_life/services/app_settings.dart';
 
 void main() {
   setUp(InAppNotificationCenter.instance.reset);
@@ -68,6 +69,44 @@ void main() {
 
     expect(container.read(shellTabProvider), ShellTabController.chat);
     expect(InAppNotificationCenter.instance.current, isNull);
+  });
+
+  testWidgets('PIN kilitliyken mesaj banner’ı gösterilmez', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 950));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appSettingsStoreProvider.overrideWithValue(
+            MemoryAppSettingsStore(const AppSettings(pinLockEnabled: true)),
+          ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const InAppNotificationHost(
+            child: Scaffold(body: Center(child: Text('Ana ekran'))),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    InAppNotificationCenter.instance.show(
+      title: 'Ceyda 🌸',
+      body: 'Gizli mesaj görünmemeli 🔒',
+      emoji: '💌',
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.byKey(const Key('in-app-notification-banner')), findsNothing);
+
+    // Otomatik kapanma zamanlayıcısını test sonunda boşalt.
+    InAppNotificationCenter.instance.reset();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
   });
 
   testWidgets('kapat düğmesi banner’ı gizler', (WidgetTester tester) async {

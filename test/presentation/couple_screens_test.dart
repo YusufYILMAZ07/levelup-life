@@ -47,7 +47,13 @@ void main() {
     expect(find.byKey(const Key('live-status-yusuf')), findsOneWidget);
     expect(find.byKey(const Key('live-status-ceyda')), findsOneWidget);
     expect(find.byKey(const Key('special-date-banner')), findsOneWidget);
-    expect(find.textContaining('kaldı'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('special-date-banner')),
+        matching: find.textContaining('kaldı'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('cihaz kilidi profil değiştiriciyi kimlik hapına çevirir', (

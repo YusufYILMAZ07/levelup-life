@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -37,7 +39,24 @@ class _VideoMessageBubbleState extends State<VideoMessageBubble> {
     _init();
   }
 
+  @override
+  void didUpdateWidget(covariant VideoMessageBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Medya değiştiyse (örn. yükleme sonrası URL) oynatıcıyı tazele.
+    if (oldWidget.message.mediaPathOrUrl != widget.message.mediaPathOrUrl) {
+      final VideoPlayerController? previous = _controller;
+      _controller = null;
+      unawaited(previous?.dispose());
+      setState(() {
+        _loading = true;
+        _failed = false;
+      });
+      _init();
+    }
+  }
+
   Future<void> _init() async {
+    if (!mounted) return;
     final String source = widget.message.mediaPathOrUrl ?? '';
     if (source.trim().isEmpty) {
       setState(() {

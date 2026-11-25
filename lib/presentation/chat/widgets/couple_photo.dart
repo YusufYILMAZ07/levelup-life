@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -64,7 +65,11 @@ class CouplePhoto extends StatelessWidget {
                       BuildContext context,
                       Widget child,
                       ImageChunkEvent? progress,
-                    ) => progress == null ? child : const _PhotoFallback(),
+                    ) {
+                      if (progress == null) return child;
+                      // Yüklenirken kırık görsel ikonu değil, ilerleme halkası.
+                      return const _PhotoLoading();
+                    },
               )
             else if (isLocalMediaPath(source))
               _LocalFileSurface(path: source, cacheWidth: imageCacheWidth)
@@ -165,26 +170,76 @@ class _PresetSurface extends StatelessWidget {
   }
 }
 
-class _MemorySurface extends StatelessWidget {
+class _MemorySurface extends StatefulWidget {
   const _MemorySurface({required this.dataUrl, this.cacheWidth});
 
   final String dataUrl;
   final int? cacheWidth;
 
   @override
-  Widget build(BuildContext context) {
+  State<_MemorySurface> createState() => _MemorySurfaceState();
+}
+
+class _MemorySurfaceState extends State<_MemorySurface> {
+  Uint8List? _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _decode();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MemorySurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.dataUrl != widget.dataUrl) _decode();
+  }
+
+  /// Base64 yalnızca **bir kez** çözülür; her rebuild'de yeniden çözmek uzun
+  /// sohbetlerde kaydırmayı yavaşlatıyordu.
+  void _decode() {
+    final String dataUrl = widget.dataUrl;
     try {
       final int comma = dataUrl.indexOf(',');
       final String encoded = comma < 0 ? dataUrl : dataUrl.substring(comma + 1);
-      return Image.memory(
-        base64Decode(encoded),
-        fit: BoxFit.cover,
-        cacheWidth: cacheWidth,
-        errorBuilder: (_, _, _) => const _PhotoFallback(),
-      );
+      _bytes = base64Decode(encoded);
     } on FormatException {
-      return const _PhotoFallback();
+      _bytes = null;
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Uint8List? bytes = _bytes;
+    if (bytes == null) return const _PhotoFallback();
+    return Image.memory(
+      bytes,
+      fit: BoxFit.cover,
+      cacheWidth: widget.cacheWidth,
+      errorBuilder: (_, _, _) => const _PhotoFallback(),
+    );
+  }
+}
+
+/// Yükleme sırasında gösterilen sakin ilerleme göstergesi.
+class _PhotoLoading extends StatelessWidget {
+  const _PhotoLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(color: AppColors.surfaceSunken),
+      child: Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: AppColors.textTertiary,
+          ),
+        ),
+      ),
+    );
   }
 }
 

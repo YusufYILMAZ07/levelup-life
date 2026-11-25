@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/pin_lock_controller.dart';
 import '../../application/shell_controller.dart';
 import '../../core/theme/theme.dart';
 
@@ -135,6 +136,14 @@ class _InAppNotificationHostState extends ConsumerState<InAppNotificationHost> {
   void _onNotification() {
     final InAppNotification? next = InAppNotificationCenter.instance.current;
     _clearTimer?.cancel();
+    // PIN kilitliyken hiçbir mesaj/içerik banner'ı gösterilmez.
+    if (ref.read(pinLockProvider)) {
+      setState(() {
+        _last = null;
+        _visible = false;
+      });
+      return;
+    }
     if (next != null) {
       setState(() {
         _last = next;
@@ -158,7 +167,20 @@ class _InAppNotificationHostState extends ConsumerState<InAppNotificationHost> {
 
   @override
   Widget build(BuildContext context) {
-    final InAppNotification? item = _last;
+    // Kilit aniden devreye girerse (arka plandan dönüş) anlık banner'ı sök.
+    ref.listen<bool>(pinLockProvider, (bool? previous, bool locked) {
+      if (!locked) return;
+      _clearTimer?.cancel();
+      if (_last != null || _visible) {
+        setState(() {
+          _last = null;
+          _visible = false;
+        });
+      }
+      InAppNotificationCenter.instance.dismiss();
+    });
+
+    final InAppNotification? item = ref.watch(pinLockProvider) ? null : _last;
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[

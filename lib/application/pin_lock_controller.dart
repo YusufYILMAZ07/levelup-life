@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/app_settings.dart';
@@ -6,27 +8,40 @@ import '../services/pin_security.dart';
 
 /// Özel alan kilidinin açık/kapalı durumu.
 ///
-/// v6 sertleştirmeleri:
-/// * `build()` artık **reaktif**: ayarlardaki `pinLockEnabled` değişince kilit
-///   durumu kendiliğinden güncellenir,
-/// * kamera/galeri/sistem izin pencereleri için **grace period** (varsayılan
-///   30 sn) vardır; kısa arka plan geçişleri kilidi tetiklemez,
-/// * 5 hatalı denemeden sonra **artan bekleme** (brute-force koruması) uygular,
-/// * biyometrik kilit (`local_auth`) desteklenir.
+/// v6.1 sertleştirmeleri:
+/// * `build()` reaktif: ayarlardaki `pinLockEnabled` değişince kilit durumu
+///   güncellenir, **ancak** kullanıcı bu oturumda açtıysa ayar değişiklikleri
+///   ekranı yeniden kilitlemez,
+/// * kamera/galeri izin pencereleri için grace period (varsayılan 30 sn),
+/// * hatalı deneme sayacı ve bekleme zamanı **kalıcıdır** (uygulama kapanıp
+///   açılsa da sıfırlanmaz),
+/// * biyometrik istem de bekleme sırasında kilitlidir,
+/// * v6 SHA-256 PIN kayıtları başarılı girişte PBKDF2'ye yükseltilir.
 final class PinLockController extends Notifier<bool> {
   int _failures = 0;
   DateTime? _lockedUntil;
   DateTime? _backgroundAt;
+  bool _initialized = false;
+
+  /// Kullanıcı bu oturumda kilidi açtı mı? (ayar değişimi re-lock etmesin)
+  bool _unlocked = false;
 
   @override
   bool build() {
+    final AppSettings settings = ref.read(appSettingsProvider);
+    if (!_initialized) {
+      _initialized = true;
+      _failures = settings.pinFailedAttempts;
+      _lockedUntil = settings.pinLockedUntil;
+    }
     final bool enabled = ref.watch(
-      appSettingsProvider.select(
-        (AppSettings settings) => settings.pinLockEnabled,
-      ),
+      appSettingsProvider.select((AppSettings value) => value.pinLockEnabled),
     );
-    // Kilit kapalıysa ekran asla kilitli kalmaz.
-    return enabled;
+    if (!enabled) {
+      _unlocked = false;
+      return false;
+    }
+    return !_unlocked;
   }
 
   AppSettings get _settings => ref.read(appSettingsProvider);
@@ -34,24 +49,19 @@ final class PinLockController extends Notifier<bool> {
   void lock() {
     if (!_settings.pinLockEnabled) return;
     _backgroundAt = null;
+    _unlocked = false;
     state = true;
   }
 
   void unlock() {
+    final bool needsPersist = _failures != 0 || _lockedUntil != null;
     _failures = 0;
     _lockedUntil = null;
     _backgroundAt = null;
+    _unlocked = true;
     state = false;
-  }
-
-  /// Ayar değiştiğinde çağrılır (v5 API'si; `build` artık reaktif olduğu için
-  /// yalnızca kapanışta ekranı serbest bırakır).
-  void syncWithSettings() {
-    if (!_settings.pinLockEnabled) {
-      _failures = 0;
-      _lockedUntil = null;
-      _backgroundAt = null;
-      state = false;
+    if (needsPersist) {
+      ref.read(appSettingsProvider.notifier).clearPinFailures();
     }
   }
 
@@ -80,7 +90,7 @@ final class PinLockController extends Notifier<bool> {
         AppSettings.maxLockGraceSeconds,
       ),
     );
-    if (elapsed >= grace) state = true;
+    if (elapsed >= grace) lock();
   }
 
   /// v5 uyumluluğu: arka plana geçişte doğrudan çağrılırsa grace'i uygular.
@@ -91,7 +101,12 @@ final class PinLockController extends Notifier<bool> {
   /// Şu an brute-force bekleme süresi var mı?
   bool get isLockedOut {
     final DateTime? until = _lockedUntil;
-    return until != null && until.isAfter(DateTime.now());
+    if (until == null) return false;
+    if (!until.isAfter(DateTime.now())) {
+      _lockedUntil = null;
+      return false;
+    }
+    return true;
   }
 
   /// Bekleme bitene kadar kalan süre.
@@ -113,16 +128,45 @@ final class PinLockController extends Notifier<bool> {
       _registerFailure();
       return false;
     }
+    if (_settings.needsPinMigration) unawaited(_upgradeLegacyPin(pin));
     unlock();
     return true;
   }
 
+  /// Kilit ekranının kullandığı, ana isolate'i bloklamayan sürüm.
+  Future<bool> unlockWithPinAsync(String pin) async {
+    if (isLockedOut) return false;
+    final AppSettings settings = _settings;
+    final bool ok = await settings.verifyPinAsync(pin);
+    if (!ok) {
+      _registerFailure();
+      return false;
+    }
+    final bool upgrade = settings.needsPinMigration;
+    unlock();
+    // Tek seferlik yükseltme: yazımın tamamlanmasını bekle (sessiz veri kaybı
+    // olmasın); UI bu sırada zaten kilidi açmış durumda.
+    if (upgrade) await _upgradeLegacyPin(pin);
+    return true;
+  }
+
   /// Biyometrik doğrulama ile kilidi açar.
+  ///
+  /// Brute-force beklemesi sırasında biyometri de kabul edilmez (aksi hâlde PIN
+  /// deneme sınırı atlatılabilirdi).
   Future<BiometricResult> unlockWithBiometrics() async {
     if (!_settings.pinLockEnabled || !_settings.biometricEnabled) {
       return const BiometricResult(
         BiometricStatus.unavailable,
         message: 'Biyometrik kilit ayarlardan açılmamış.',
+      );
+    }
+    if (isLockedOut) {
+      return BiometricResult(
+        BiometricStatus.lockedOut,
+        message:
+            'Çok fazla hatalı deneme · '
+            '${lockoutRemaining.inSeconds} sn sonra dene',
       );
     }
     final BiometricResult result = await ref
@@ -132,12 +176,22 @@ final class PinLockController extends Notifier<bool> {
     return result;
   }
 
+  Future<void> _upgradeLegacyPin(String pin) async {
+    try {
+      await ref.read(appSettingsProvider.notifier).migratePinAsync(pin);
+    } catch (_) {
+      // Migrasyon başarısız olsa da giriş geçerlidir; eski hash çalışmaya
+      // devam eder ve bir sonraki girişte yeniden denenir.
+    }
+  }
+
   void _registerFailure() {
     _failures++;
     final Duration lockout = PinAttemptPolicy.lockoutFor(_failures);
-    if (lockout > Duration.zero) {
-      _lockedUntil = DateTime.now().add(lockout);
-    }
+    _lockedUntil = lockout > Duration.zero ? DateTime.now().add(lockout) : null;
+    ref
+        .read(appSettingsProvider.notifier)
+        .recordPinFailure(attempts: _failures, lockedUntil: _lockedUntil);
   }
 }
 

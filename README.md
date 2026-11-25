@@ -1,4 +1,4 @@
-# LevelUp Life ⚡ — Couple Edition v6.0 (Yusuf & Ceyda)
+# LevelUp Life ⚡ — Couple Edition v6.1 (Yusuf & Ceyda)
 
 Hayatını bir RPG'ye çeviren Flutter uygulaması — **iki kişilik** sürüm. Günlük
 görevlerini tamamla, XP kazan, seviye atla, 5 temel statını geliştir ve gün
@@ -13,6 +13,15 @@ bildirim alabilirsin.
 > push artık Supabase Edge Function üzerinden gönderiliyor. PIN düz metin
 > yerine tuzlanmış SHA-256 olarak saklanıyor; çevrimdışı kuyruk (Outbox) ve
 > tombstone'lar diske yazılıyor.
+>
+> **v6.1 Production Gold bildirim garantisi:** gönderenin sessiz saati /
+> kapalı bildirim ayarı partnerin push'unu artık engellemiyor. Push, mesaj
+> Supabase'e yazıldıktan sonra kalıcı `pendingPushMessageIds` kuyruğundan
+> **tam bir kez** gönderiliyor; uygulama push'tan önce kapansa bile açılışta
+> tamamlanıyor. OneSignal kimliği `<oda>__<rol>` ile izole edildi,
+> ön planda Realtime + OneSignal çift bildirimi bastırılıyor, Edge Function
+> `push_deliveries` atomik claim ile istemci/webhook çifte push'unu önlüyor.
+> Ayarlar'a canlı **Bildirim & Senkron Sağlık Paneli** eklendi.
 
 ## Özellikler
 
@@ -154,13 +163,18 @@ Bulut tamamen opsiyoneldir; **hiçbir şey yapılmazsa uygulama yerel çalışı
 1. [supabase.com](https://supabase.com) → yeni proje.
 2. **Authentication → Providers → Anonymous → Enable.** (RLS, `auth.uid()`
    üzerinden çalışır; iki cihaz da anonim oturum açar.)
-3. **SQL Editor** → `supabase/migrations/20261123000000_v6_security.sql`
-   dosyasının tamamını çalıştır. Bu migrasyon:
+3. **SQL Editor** → önce `supabase/migrations/20261123000000_v6_security.sql`,
+   sonra `supabase/migrations/20261125000000_v6_1_production_gold.sql`
+   dosyalarının tamamını çalıştır. Bu migrasyonlar:
    - `couple_rooms`, `room_members`, `chat_messages` tablolarını + indeksleri,
    - `is_room_member()` / `member_role()` ve `join_couple_room()` fonksiyonlarını,
    - **v6 RLS politikalarını** (oda üyeliği + gönderen rolü doğrulaması),
    - **özel** `couple-media` kovasını ve klasör bazlı Storage politikalarını,
-   - Realtime yayınını (`insert/update/delete`) ve `replica identity full`'u kurar.
+   - Realtime yayınını (`insert/update/delete`) ve `replica identity full`'u,
+   - v6.1'de `room_members.last_seen_at/push_enabled/sessiz saat`,
+     `chat_messages.read_at/reactions`, güvenli `mark_messages_read` +
+     `toggle_message_reaction` RPC'lerini ve `push_deliveries` idempotency
+     tablosunu kurar.
    Alternatif: `supabase db push` / `supabase migration up`.
 4. Supabase → **Project Settings → API**'den **Project URL** ve **anon/publishable**
    anahtarını al.
@@ -192,15 +206,33 @@ tamamen kapalıyken partnerine ulaşmak için:
 3. OneSignal → **Push → Apple iOS** → APNs anahtarını (`.p8`) ve Key ID'yi yükle;
    Bundle ID `dev.levelup.levelupLife` ile eşleştir.
 4. Xcode'da Runner hedefinde **Push Notifications** ve **Background Modes →
-   Remote notifications** açık olmalı. `ios/Runner/Runner.entitlements`
-   `aps-environment` içerir; minimum iOS sürümü **15.0**.
+   Remote notifications** açık olmalı. Debug için
+   `ios/Runner/Runner.entitlements` (`development`), Release/Profile için
+   `ios/Runner/RunnerRelease.entitlements` (`production`) kullanılır. Minimum
+   iOS sürümü **15.0**.
+   - Zengin medya / görsel ekli push'lar için
+     [OneSignal Notification Service Extension rehberi](docs/ONESIGNAL_IOS_NSE.md).
 5. Uygulamada Ayarlar → **🔔 Kapalıyken de Bildirim** bölümüne **yalnızca App ID**
-   gir → kaydet → **🚀 OneSignal Push Testi Gönder**.
+   gir → kaydet → **🩺 Bildirim Sağlık Paneli → Karşı Tarafa Test Bildirimi**.
 
-Cihaz sahibi OneSignal'a `external_id` olarak `yusuf` / `ceyda` ile giriş yapar.
-Push isteğini `send-couple-push` Edge Function'ı yapar; fonksiyon çağıranın
-oturumunu ve `room_members` üyeliğini doğrular, alıcının karşı partner olduğunu
-kontrol eder. Böylece REST anahtarı istemciye hiç inmez.
+Cihaz sahibi OneSignal'a **oda kapsamlı** `external_id` ile giriş yapar:
+
+```text
+<normalize-oda-kodu>__<rol>          # yusuf-ceyda-2026__ceyda
+```
+
+Böylece aynı OneSignal App ID'sini kullanan farklı çiftler/test cihazları
+birbirine push alamaz. Push isteğini `send-couple-push` Edge Function'ı yapar;
+fonksiyon çağıranın oturumunu, `room_members` üyeliğini ve mesaj sahibini
+doğrular, alıcının `push_enabled` + sessiz saat ayarını uygular. İstemci ve
+sunucu aynı mesaj için yarışsa bile `push_deliveries` atomik claim'i ikinci
+push'u `duplicate:true` ile durdurur. REST anahtarı istemciye hiç inmez.
+
+> **Sunucu tarafı ek garanti (opsiyonel):** İstemci kapanmış olsa bile her
+> `chat_messages` INSERT'inde Edge Function'ı çağırmak için
+> `supabase/migrations/20261123002000_v6_1_push_webhook.example.sql` dosyasındaki
+> `pg_net` trigger rehberini uygula. İdempotency aynı olduğu için istemciyle
+> birlikte açık kalması çifte bildirim üretmez.
 
 ## İzinler
 
@@ -209,13 +241,17 @@ kontrol eder. Böylece REST anahtarı istemciye hiç inmez.
   `UIBackgroundModes → remote-notification`,
   `CADisableMinimumFrameDurationOnPhone` (ProMotion). `AppDelegate.swift` ön
   planda da bildirim göstermek için `UNUserNotificationCenter` delegesini atar.
-  `Runner.entitlements` push (`aps-environment`) hakkını taşır; deployment
-  target **iOS 15.0**'dır.
+  `Runner.entitlements` Debug'da `aps-environment: development`,
+  `RunnerRelease.entitlements` Release/Profile'da `production` taşır;
+  deployment target **iOS 15.0**'dır.
 - **Android** (`AndroidManifest.xml`): `CAMERA`, `RECORD_AUDIO`,
   `READ_MEDIA_IMAGES/VIDEO`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`,
-  zamanlanmış bildirim alıcıları. `local_auth` için `MainActivity`
-  **`FlutterFragmentActivity`** türetir; `flutter_local_notifications` için
-  `build.gradle.kts` içinde core library desugaring açıktır.
+  `SCHEDULE_EXACT_ALARM`, zamanlanmış bildirim alıcıları. Exact alarm izni
+  yoksa `NotificationService` otomatik olarak `inexactAllowWhileIdle`'a düşer.
+  `local_auth` için `MainActivity` **`FlutterFragmentActivity`** türetir;
+  `flutter_local_notifications` için `build.gradle.kts` içinde core library
+  desugaring açıktır. Release imzası `android/key.properties`'ten okunur
+  (dosya yoksa debug anahtarı + Gradle uyarısı; mağaza öncesi zorunlu).
 
 ## Kurulum
 
@@ -235,23 +271,36 @@ Depo boşsa veya eski tek oyunculu bir kayıt varsa:
 - **eski tek oyunculu kayıt varsa ezilmez**: `CoupleBootstrap.migrateFromLegacy`
   profili/görevleri cihaz sahibinin koltuğuna taşır, sohbet ve rubrik korunur.
 
-## v6.0 kapsamı
+## v6.1 kapsamı
 
-Tamamlanan sertleştirme ve özellikler bu README'de listelenmiştir. Bilinçli
-olarak **bu sürüme alınmayan** iki başlık (v6.1 yol haritası):
+Tamamlananlar:
 
-- **Sesli not (voice note):** `record` + ses oynatma paketi ve Android/iOS
-  mikrofon izin akışı gerektirir; `RECORD_AUDIO` izni şimdilik yalnızca video
-  kaydı için kullanılıyor.
-- **Ortak çift görevleri (co-op quests) ve haftada 1 seri dondurma UI'ı:**
-  `Streak.freezeMissedDay` / `AppConstants.startingFreezeTokens` altyapısı hazır;
-  kullanıcıya görünen kart/akış bir sonraki sürümde eklenecek.
+- **Bildirim zinciri:** gönderen DND'si bağımsız push, kalıcı push kuyruğu,
+  outbox sonrası tam 1 push, 401/403 otomatik oturum tazeleme + 1 retry.
+- **Ön plan dedupe:** Realtime bağlıyken OneSignal ikinci bildirimi bastırılır;
+  sohbet açıksa sistem bildirimi/banner yerine hafif titreşim.
+- **Oda izolasyonu:** `<oda>__<rol>` external_id, Edge Function
+  `include_aliases` + nudge `collapse_id` + yüksek öncelik.
+- **Sunucu idempotency:** `push_deliveries` + `claim_push_delivery` /
+  `complete_push_delivery`; istemci + webhook aynı anda çağırsa tek bildirim.
+- **Sohbet RLS:** alıcı partner okundu/tepkiyi yalnızca `SECURITY DEFINER`
+  RPC ile yazar; `room_members.last_seen_at/push_enabled/sessiz saat` eklendi.
+- **Platform:** Android 14 exact-alarm fallback'i, üretim keystore yapısı,
+  Debug/Release iOS entitlements ayrımı, NSE kurulum rehberi.
+- **Tanı:** Ayarlar → Bildirim & Senkron Sağlık Paneli (izin, OneSignal
+  identity, oda üyeliği, outbox, karşı tarafa test push).
+
+Bilinçli olarak **v6.2'ye bırakılanlar**:
+
+- **Sesli not (voice note)** ve **ortak çift görevleri / haftalık seri
+  dondurma UI'ı** (`Streak.freezeMissedDay` altyapısı hazır).
+- **İmzalı medya URL otomatik yenileme** (7 günlük expiry yaklaşımı korunuyor).
 
 ## Kalite kontrolleri
 
 ```bash
 flutter analyze            # No issues found!
-flutter test               # 338 test
+flutter test               # tüm birim + widget testleri
 flutter build web --release
 flutter build ios --simulator --no-codesign
 ```
@@ -262,11 +311,14 @@ verimlilik motoru, çift controller'ı (partner geçişi, rubrik XP'si, sinerji,
 sohbet/fotoğraf, kalıcılık, **tahribatsız uzak mesaj birleştirme**), dört
 sekmeli kabuk + çift ekranları, medya/yanıt/okundu serileştirmesi, özel günler,
 bildirim metni/plan zamanlaması, OneSignal Edge Function payload'ları, Supabase
-`SyncConfig` + **v6 SQL güvenlik şeması**, PIN numpad'i, kilitli cihaz kimliği
-ve **v6 regresyon testleri**: `refreshQuests` özel görev koruması,
+`SyncConfig` + **v6/v6.1 SQL güvenlik şeması**, PIN numpad'i, kilitli cihaz
+kimliği ve **v6 regresyon testleri**: `refreshQuests` özel görev koruması,
 `toggleBucketGoal` tek seferlik XP, `addCustomBonus` sınırları, tombstone
 birleştirmesi, uzak durumda cihaz kimliği koruması, **kalıcı Outbox flush**,
-**PIN brute-force + grace period**, **tuzlu SHA-256 PIN**, DND hesapları.
+**PIN brute-force + grace period**, **tuzlu SHA-256 PIN**, DND hesapları ve
+**v6.1 bildirim regresyonları**: gönderen DND'sinde push, alıcı DND'sinde
+yerel bastırma, çevrimdışı outbox push'unun tam 1 kez gitmesi, oda kapsamlı
+external_id, foreground çift bildirim filtresi.
 
 ## Lisans
 

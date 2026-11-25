@@ -15,7 +15,7 @@ void main() {
       final BackupRestore restore = BackupService.parse(raw);
 
       expect(restore.schemaVersion, BackupService.supportedSchema);
-      expect(restore.exportedAt.toUtc(), DateTime.utc(2026, 11, 23, 12));
+      expect(restore.exportedAt?.toUtc(), DateTime.utc(2026, 11, 23, 12));
       expect(restore.state.isCoupleEdition, isTrue);
       expect(
         restore.state.couple.messages.length,
@@ -62,8 +62,9 @@ void main() {
     });
 
     test('gelecek şema sürümü reddedilir', () {
-      final String raw = BackupService.export(CoupleBootstrap.initialState())
-          .replaceFirst('"schema_version": 6', '"schema_version": 99');
+      final String raw = BackupService.export(
+        CoupleBootstrap.initialState(),
+      ).replaceFirst('"schema_version": 6', '"schema_version": 99');
       expect(
         () => BackupService.parse(raw),
         throwsA(

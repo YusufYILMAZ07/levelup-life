@@ -16,7 +16,10 @@ abstract interface class GameStore {
   GameState? load();
 
   /// Dönen Future **gerçek disk yazımı tamamlanınca** resolve olur.
-  Future<void> save(GameState state);
+  ///
+  /// [flush] `true` ise debounce beklenmez; tohum/migrasyon gibi kritik ilk
+  /// kayıtlar diske hemen yazılır.
+  Future<void> save(GameState state, {bool flush = false});
 
   Future<void> clear();
 
@@ -34,7 +37,7 @@ final class MemoryGameStore implements GameStore {
   GameState? load() => _state;
 
   @override
-  Future<void> save(GameState state) async {
+  Future<void> save(GameState state, {bool flush = false}) async {
     _state = state;
   }
 
@@ -65,6 +68,9 @@ Map<String, dynamic>? _decodeStatePayload(String raw) {
   }
   return null;
 }
+
+/// Büyük JSON'u ana isolate'i bloklamadan kodlar.
+String _encodeStatePayload(Map<String, dynamic> payload) => jsonEncode(payload);
 
 /// `shared_preferences` tabanlı yerel store.
 ///
@@ -100,8 +106,7 @@ final class LocalGameStore implements GameStore {
   String? get lastLoadError => _loadError;
 
   static Future<LocalGameStore> open() async {
-    final SharedPreferences preferences =
-        await SharedPreferences.getInstance();
+    final SharedPreferences preferences = await SharedPreferences.getInstance();
     final LocalGameStore store = LocalGameStore._(preferences);
     await store._primeState();
     return store;
@@ -142,7 +147,8 @@ final class LocalGameStore implements GameStore {
     if (version is int && version > gameStateSchemaVersion) {
       // İleri sürümden gelen kayıt: bilinmeyen alanlar yok sayılır, veri
       // kaybını önlemek için yine de okunur.
-      _loadError = 'Kayıt v$version sürümünden; v$gameStateSchemaVersion '
+      _loadError =
+          'Kayıt v$version sürümünden; v$gameStateSchemaVersion '
           'uyumluluk modunda okundu.';
     }
     return GameState.fromJson(stateJson);
@@ -155,11 +161,17 @@ final class LocalGameStore implements GameStore {
   }
 
   @override
-  Future<void> save(GameState state) {
+  Future<void> save(GameState state, {bool flush = false}) {
     _latest = state;
     final Completer<void> completer = Completer<void>();
     _pendingWrites.add(completer);
     _writeTimer?.cancel();
+    if (flush) {
+      // Kritik ilk kayıt: debounce beklemeden hemen yaz.
+      _writeTimer = null;
+      unawaited(_writeLatest());
+      return completer.future;
+    }
     _writeTimer = Timer(writeDebounce, () {
       unawaited(_writeLatest());
     });
@@ -175,44 +187,48 @@ final class LocalGameStore implements GameStore {
   }
 
   Future<void> _writeLatest() async {
+    // Bu batch'e ait completer'lar ayrılır; yazım sırasında gelen yeni save'ler
+    // bir sonraki batch'te tamamlanır.
+    final List<Completer<void>> batch = <Completer<void>>[..._pendingWrites];
+    _pendingWrites.clear();
+
     final GameState? state = _latest;
     if (state == null) {
-      _completePending();
+      _completeBatch(batch);
       await _writeChain;
       return;
     }
-    final String payload = jsonEncode(<String, dynamic>{
+    final Map<String, dynamic> payload = <String, dynamic>{
       'schema_version': gameStateSchemaVersion,
       'saved_at': DateTime.now().toUtc().toIso8601String(),
       'state': state.toJson(),
-    });
+    };
+    // Büyük JSON kodlaması isolate üzerinde yapılır (ana thread bloke olmaz).
+    final String encoded = await compute(_encodeStatePayload, payload);
     _writeChain = _writeChain
         .catchError((Object _) {
           // Önceki yazım hatası sonraki denemeyi engellemesin.
         })
         .then((_) async {
-          await _preferences.setString(AppConstants.cacheGameState, payload);
+          await _preferences.setString(AppConstants.cacheGameState, encoded);
           _prime = state;
           _primed = true;
         });
     try {
       await _writeChain;
     } finally {
-      _completePending();
+      _completeBatch(batch);
     }
   }
 
-  void _completePending() {
-    final List<Completer<void>> pending = <Completer<void>>[..._pendingWrites];
-    _pendingWrites.clear();
-    for (final Completer<void> completer in pending) {
+  void _completeBatch(List<Completer<void>> batch) {
+    for (final Completer<void> completer in batch) {
       if (!completer.isCompleted) completer.complete();
     }
   }
 
   Future<void> _quarantine(String raw, String reason) async {
-    _loadError =
-        'Kayıt okunamadı ($reason) · yedek: $corruptedBackupKey';
+    _loadError = 'Kayıt okunamadı ($reason) · yedek: $corruptedBackupKey';
     try {
       await _preferences.setString(corruptedBackupKey, raw);
       await _preferences.remove(AppConstants.cacheGameState);
@@ -229,13 +245,14 @@ final class LocalGameStore implements GameStore {
     _latest = null;
     _prime = null;
     _primed = true;
-    _completePending();
-    try {
-      await _writeChain;
-    } catch (_) {
-      // Önceki hata temizliği engellemez.
-    }
-    await _preferences.remove(AppConstants.cacheGameState);
+    _completeBatch(<Completer<void>>[..._pendingWrites]);
+    _pendingWrites.clear();
+    // Tüm anahtarlar (ana durum + bozuk yedek) aynı yazma kuyruğunda temizlenir.
+    _writeChain = _writeChain.catchError((Object _) {}).then((_) async {
+      await _preferences.remove(AppConstants.cacheGameState);
+      await _preferences.remove(corruptedBackupKey);
+    });
+    await _writeChain;
   }
 }
 
