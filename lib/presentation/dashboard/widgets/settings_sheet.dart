@@ -17,6 +17,7 @@ import '../../../services/media_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/push_service.dart';
 import '../../../services/supabase_sync_service.dart';
+import '../../../services/web_push_bridge.dart';
 import '../../birthday/birthday_modal.dart';
 import '../../onboarding/widgets/grade_selector.dart';
 import '../../widgets/in_app_notification_banner.dart';
@@ -1045,6 +1046,10 @@ class _NotificationHealthPanelState
   }
 
   Future<void> _requestPermission() async {
+    if (kIsWeb) {
+      await _enableWebPush();
+      return;
+    }
     if (!mounted) return;
     setState(() => _busy = true);
     try {
@@ -1058,6 +1063,37 @@ class _NotificationHealthPanelState
     }
     if (!mounted) return;
     // İzin ve sağlık rozetleri anında güncellensin.
+    await _refresh();
+  }
+
+  /// iPhone PWA: izin + abonelik yalnızca kullanıcı dokunuşuyla istenir.
+  Future<void> _enableWebPush() async {
+    if (!mounted) return;
+    setState(() => _busy = true);
+    WebPushStatus status = WebPushStatus.unsupported;
+    try {
+      status = await PushService.instance.requestWebPushPermission();
+    } catch (_) {
+      // JS köprüsü hata fırlatsa bile panel düğmeleri kilitli kalmaz.
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    final PushResult result = status.ready
+        ? const PushResult(
+            ok: true,
+            statusCode: 200,
+            message: 'Kapalıyken bildirimler açıldı ✅',
+          )
+        : PushResult(
+            ok: false,
+            statusCode: 0,
+            message: status.permissionGranted
+                ? 'İzin verildi · abonelik hazır değil, bir kez daha dene.'
+                : 'Bildirim izni verilmedi · iPhone Ayarlar → Bildirimler → '
+                      'CEYYUS.',
+          );
+    ref.read(pushHealthProvider.notifier).set(result);
     await _refresh();
   }
 
@@ -1102,15 +1138,21 @@ class _NotificationHealthPanelState
         PushService.externalIdFor(settings) ??
         'Oda kodu bekleniyor';
     final bool identityOk = diagnostics?.identityMatches ?? false;
+    final bool webPushSupported = diagnostics?.webPushSupported ?? false;
+    final bool webStandalone = diagnostics?.isStandalonePwa ?? false;
+    final bool webPushReady = diagnostics?.webPushReady ?? false;
+    final bool webPermission = diagnostics?.permissionGranted ?? false;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         SectionHeader(
           title: '🩺 Bildirim & Senkron Sağlık Paneli',
-          subtitle:
-              'Yerel izin, OneSignal kimliği, Supabase üyeliği ve çevrimdışı '
-              'kuyruğu tek bakışta.',
+          subtitle: kIsWeb
+              ? 'Web push izni, OneSignal kimliği, Supabase üyeliği ve '
+                    'çevrimdışı kuyruğu tek bakışta.'
+              : 'Yerel izin, OneSignal kimliği, Supabase üyeliği ve çevrimdışı '
+                    'kuyruğu tek bakışta.',
           trailing: IconButton(
             key: const Key('health-refresh'),
             tooltip: 'Yenile',
@@ -1124,19 +1166,20 @@ class _NotificationHealthPanelState
                 : const Icon(Icons.refresh_rounded, size: 19),
           ),
         ),
-        _HealthRow(
-          key: const Key('health-local-permission'),
-          ok: _localPermission,
-          label: 'Yerel bildirim izni',
-          value: _localPermission ? 'Açık' : 'Kapalı · izin ver',
-          action: _localPermission
-              ? null
-              : TextButton(
-                  key: const Key('health-request-permission'),
-                  onPressed: _busy ? null : _requestPermission,
-                  child: const Text('Aç'),
-                ),
-        ),
+        if (!kIsWeb)
+          _HealthRow(
+            key: const Key('health-local-permission'),
+            ok: _localPermission,
+            label: 'Yerel bildirim izni',
+            value: _localPermission ? 'Açık' : 'Kapalı · izin ver',
+            action: _localPermission
+                ? null
+                : TextButton(
+                    key: const Key('health-request-permission'),
+                    onPressed: _busy ? null : _requestPermission,
+                    child: const Text('Aç'),
+                  ),
+          ),
         _HealthRow(
           key: const Key('health-onesignal'),
           ok: identityOk && (diagnostics?.permissionGranted ?? false),
@@ -1147,6 +1190,89 @@ class _NotificationHealthPanelState
               ? identity
               : 'Eşleşmiyor · $identity',
         ),
+        if (kIsWeb) ...<Widget>[
+          if (!webPushSupported)
+            const _WebPushNotice(
+              key: Key('web-push-unsupported'),
+              icon: Icons.block_rounded,
+              color: AppColors.danger,
+              title: 'Web push desteklenmiyor',
+              body:
+                  'Bu tarayıcı bildirim API’sini desteklemiyor. iPhone 13 / '
+                  'iPhone 17 Pro’da iOS 16.4+ Safari kullan.',
+            )
+          else if (!webStandalone)
+            const _WebPushNotice(
+              key: Key('web-push-install-hint'),
+              icon: Icons.add_to_home_screen_rounded,
+              color: AppColors.warning,
+              title: 'Ana Ekrana Ekle · iPhone',
+              body:
+                  'Kapalıyken bildirim almak için Safari → Paylaş → Ana '
+                  'Ekrana Ekle yapıp uygulamayı ana ekrandan açın.',
+            )
+          else ...<Widget>[
+            _HealthRow(
+              key: const Key('web-push-status'),
+              ok: webPushReady,
+              label: 'iPhone kilit ekranı bildirimi',
+              value: webPushReady
+                  ? 'Açık · uygulama kapalıyken de gelir'
+                  : webPermission
+                  ? 'İzin var · abonelik bekliyor'
+                  : 'Kapalı · etkinleştir',
+            ),
+            if (webPushReady)
+              Padding(
+                key: const Key('web-push-ready-badge'),
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withValues(alpha: 0.10),
+                    borderRadius: AppRadii.smAll,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        size: 15,
+                        color: AppColors.success,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Kilit ekranı bildirimleri açık · ana ekrandan '
+                          'açılış algılandı',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.success,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: FilledButton.icon(
+                  key: const Key('web-push-enable'),
+                  onPressed: _busy ? null : _enableWebPush,
+                  icon: const Icon(
+                    Icons.notifications_active_rounded,
+                    size: 17,
+                  ),
+                  label: const Text('Kapalıyken Bildirimleri Etkinleştir'),
+                ),
+              ),
+          ],
+        ],
         _HealthRow(
           key: const Key('health-membership'),
           ok: sync.isConnected,
@@ -1200,10 +1326,9 @@ class _NotificationHealthPanelState
         const SizedBox(height: AppSpacing.xs),
         Text(
           kIsWeb
-              ? 'Bu test bildirimi bu tarayıcıya değil, partnerin mobil '
-                    'cihazına (OneSignal) gider. Web’de yerel bildirim '
-                    'gösterilmez; yanıt Edge Function HTTP kodunu ve teslim '
-                    'durumunu gösterir.'
+              ? 'Bu test bildirimi partnerin cihazına (OneSignal) gider. '
+                    'iPhone’da kendi kilit ekranına bildirim için: Safari → '
+                    'Ana Ekrana Ekle + “Kapalıyken Bildirimleri Etkinleştir”.'
               : 'Test yanıtı Edge Function HTTP kodunu ve OneSignal teslim '
                     'durumunu gösterir. 401/403’te oturum bir kez otomatik '
                     'yenilenir.',
@@ -1269,6 +1394,65 @@ class _HealthRow extends StatelessWidget {
             ),
           ),
           ?action,
+        ],
+      ),
+    );
+  }
+}
+
+/// Web PWA kurulum/destek durumunu açıklayan bilgi kartı.
+class _WebPushNotice extends StatelessWidget {
+  const _WebPushNotice({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.body,
+    super.key,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: AppSpacing.xs, bottom: AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: AppRadii.smAll,
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: AppTypography.caption.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  body,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

@@ -7,6 +7,7 @@ import '../domain/entities/entities.dart';
 import 'app_settings.dart';
 import 'message_delivery_policy.dart';
 import 'notification_service.dart';
+import 'web_push_bridge.dart';
 
 /// UTF-16 surrogate pair'i ortadan bölmeden rune-safe kırpma.
 ///
@@ -102,6 +103,9 @@ final class PushDiagnostics {
     required this.expectedExternalId,
     required this.subscriptionId,
     required this.lastError,
+    this.isStandalonePwa = false,
+    this.webPushSupported = false,
+    this.webPushOptedIn = false,
   });
 
   final bool initialized;
@@ -111,6 +115,15 @@ final class PushDiagnostics {
   final String? subscriptionId;
   final String? lastError;
 
+  /// Sayfa iPhone ana ekranından mı açıldı (`display-mode: standalone`)?
+  final bool isStandalonePwa;
+
+  /// Tarayıcı Web Push API'sini destekliyor mu?
+  final bool webPushSupported;
+
+  /// OneSignal Web aboneliği açık mı?
+  final bool webPushOptedIn;
+
   bool get identityMatches =>
       externalId != null &&
       expectedExternalId != null &&
@@ -118,6 +131,13 @@ final class PushDiagnostics {
 
   bool get subscriptionActive =>
       initialized && permissionGranted && identityMatches;
+
+  /// Web PWA'da kilit ekranı bildirimi için gereken her şey hazır mı?
+  bool get webPushReady =>
+      webPushSupported &&
+      isStandalonePwa &&
+      webPushOptedIn &&
+      permissionGranted;
 }
 
 /// Son push hatasını sohbet ekranı ve sağlık panelinde canlı göstermek için.
@@ -210,33 +230,37 @@ abstract final class PushPayloads {
 
 /// iOS/Android kapalıyken OneSignal üzerinden garantili push.
 ///
-/// * OneSignal **SDK** yalnızca iOS/Android/macOS'ta başlatılır; Web'de
-///   `initialize`/`login` atlanır (SDK yok) ve uygulama asla çökertmez.
+/// * iOS/Android/macOS'ta OneSignal **native SDK** başlatılır.
+/// * Web'de (iPhone PWA) `web/index.html` içindeki OneSignal Web SDK v16
+///   köprüsü [`WebPushBridge`] üzerinden başlatılır; izin **yalnızca**
+///   kullanıcı dokunuşuyla ([requestWebPushPermission]) istenir.
 /// * Gönderim **her platformda** (Web dahil) [PushPayloads.functionName] Edge
 ///   Function'ı üzerinden yapılır: Web'den atılan mesaj/dürtme partnerin
 ///   iOS/Android telefonuna push olarak gider.
-/// * Uygulama açılışında OneSignal başlatılır, izin istenir ve cihaz sahibi
-///   oda kapsamlı `external_id` olarak oturum açar
-///   (`<oda>__<rol>`).
-/// * Gönderim [PushPayloads.functionName] Edge Function'ı üzerinden yapılır.
+/// * Uygulama açılışında OneSignal başlatılır ve cihaz sahibi oda kapsamlı
+///   `external_id` olarak oturum açar (`<oda>__<rol>`).
 /// * Ön planda Realtime bağlıyken OneSignal ikinci bildirimi bastırılır.
 /// * 401/403'te Supabase oturumu tazelenip **bir kez** yeniden denenir.
 ///
 /// Not: Gerçek teslimat için OneSignal panelinde iOS uygulamasına APNs
-/// anahtarının yüklenmiş olması ve Edge Function secret'larının tanımlı olması
-/// gerekir (README → Push kurulumu).
+/// anahtarının yüklenmiş olması, Web platformunun (site URL) tanımlı olması
+/// ve Edge Function secret'larının tanımlı olması gerekir
+/// (README + docs/IPHONE_PWA_SETUP.md).
 final class PushService {
   PushService({
     SupabaseClient? Function()? clientProvider,
     bool Function()? supabaseReady,
     this.webOverride,
+    WebPushBridge? webPushBridge,
   }) : _clientProvider = clientProvider ?? (() => Supabase.instance.client),
-       _supabaseReady = supabaseReady ?? _defaultSupabaseReady;
+       _supabaseReady = supabaseReady ?? _defaultSupabaseReady,
+       _webPush = webPushBridge ?? WebPushBridge.instance;
 
   static final PushService instance = PushService();
 
   final SupabaseClient? Function() _clientProvider;
   final bool Function() _supabaseReady;
+  final WebPushBridge _webPush;
 
   /// Test enjeksiyonu: `kIsWeb` derleme sabitini VM testlerinde taklit eder.
   /// Üretimde `null` → gerçek `kIsWeb` değeri kullanılır.
@@ -245,12 +269,16 @@ final class PushService {
   /// Çalışma zamanının web olup olmadığı (OneSignal SDK kapısı için).
   bool get isWeb => webOverride ?? kIsWeb;
 
+  /// Web Push köprüsü (testlerde sahte sürücüyle enjekte edilir).
+  WebPushBridge get webPush => _webPush;
+
   bool _initialized = false;
   bool _clickListenerAttached = false;
   bool _foregroundListenerAttached = false;
   String? _appId;
   String? _externalId;
   bool _permissionGranted = false;
+  WebPushStatus _webStatus = WebPushStatus.unsupported;
   Map<String, dynamic>? _pendingTap;
   PushResult? lastResult;
   String? lastError;
@@ -285,7 +313,10 @@ final class PushService {
   String? get externalId => _externalId;
 
   String? get subscriptionId =>
-      _initialized ? OneSignal.User.pushSubscription.id : null;
+      _initialized && !isWeb ? OneSignal.User.pushSubscription.id : null;
+
+  /// Son okunan Web Push durumu (Web dışında güvenli varsayılan).
+  WebPushStatus get webStatus => _webStatus;
 
   bool get permissionGranted => _permissionGranted;
 
@@ -315,7 +346,8 @@ final class PushService {
     AppSettings settings, {
     bool requestPermission = true,
   }) async {
-    if (isWeb || !isSupported || !settings.isPushConfigured) return false;
+    if (isWeb) return _initializeWeb(settings);
+    if (!isSupported || !settings.isPushConfigured) return false;
     final String appId = settings.oneSignalAppId.trim();
     try {
       if (!_initialized || _appId != appId) {
@@ -370,14 +402,63 @@ final class PushService {
     }
   }
 
+  /// Web (iPhone PWA) OneSignal Web SDK v16 başlatması.
+  ///
+  /// İzin **istenmez**: iOS Safari'de izin yalnızca kullanıcı dokunuşuyla
+  /// ([requestWebPushPermission]) alınabilir. Burada yalnızca SDK ve oda
+  /// kapsamlı kimlik hazırlanır.
+  Future<bool> _initializeWeb(AppSettings settings) async {
+    if (!settings.isPushConfigured) return false;
+    if (!_webPush.supported) {
+      lastError = 'Web push köprüsü yüklü değil · Safari + HTTPS gerekir.';
+      return false;
+    }
+    final String appId = settings.oneSignalAppId.trim();
+    try {
+      final WebPushStatus status = await _webPush.init(appId);
+      _appId = appId;
+      _webStatus = status;
+      _initialized = status.initialized;
+      _permissionGranted = status.permissionGranted;
+      lastError = null;
+      if (_initialized) {
+        await syncIdentity(settings);
+      }
+      return _initialized;
+    } catch (error) {
+      lastError = error.toString();
+      _initialized = false;
+      return false;
+    }
+  }
+
   /// Cihaz sahibi / oda kodu değişince OneSignal kimliğini günceller.
   ///
   /// Oda kodu yoksa eski, oda dışı `external_id` **temizlenir**; böylece aynı
   /// App ID'yi kullanan başka bir çiftin cihazına push gitmez.
   Future<void> syncIdentity(AppSettings settings) async {
-    if (!_initialized || !isSupported) return;
+    if (!_initialized) return;
+    final String? scoped = externalIdFor(settings);
+    if (isWeb) {
+      if (!_webPush.supported) return;
+      try {
+        if (scoped == null) {
+          await _webPush.logout();
+          _externalId = null;
+          lastError = 'Oda kodu tanımlanmadan push kimliği açılmaz.';
+          return;
+        }
+        final WebPushStatus status = await _webPush.login(scoped);
+        _webStatus = status;
+        _externalId = scoped;
+        lastError = null;
+      } catch (error) {
+        lastError = error.toString();
+      }
+      return;
+    }
+    if (!isSupported) return;
     try {
-      final String? scoped = externalIdFor(settings);
       if (scoped == null) {
         await OneSignal.logout();
         _externalId = null;
@@ -389,6 +470,41 @@ final class PushService {
       lastError = null;
     } catch (error) {
       lastError = error.toString();
+    }
+  }
+
+  /// iPhone PWA'da "Kapalıyken Bildirimleri Etkinleştir" düğmesi.
+  ///
+  /// **Yalnızca gerçek kullanıcı dokunuşundan** çağrılmalıdır; iOS Safari
+  /// dokunuş dışındaki izin isteklerini sessizce reddeder.
+  Future<WebPushStatus> requestWebPushPermission() async {
+    if (!isWeb || !_webPush.supported) return WebPushStatus.unsupported;
+    try {
+      final WebPushStatus status = await _webPush.requestPermission();
+      _webStatus = status;
+      _permissionGranted = status.permissionGranted;
+      _initialized = _initialized || status.initialized;
+      lastError = status.permissionGranted
+          ? null
+          : 'Web push izni verilmedi · Ayarlar → Bildirimler.';
+      return status;
+    } catch (error) {
+      lastError = error.toString();
+      return _webStatus;
+    }
+  }
+
+  /// Sağlık panelinin anlık Web Push fotoğrafı (izin istemez).
+  Future<WebPushStatus> webPushStatus() async {
+    if (!isWeb || !_webPush.supported) return WebPushStatus.unsupported;
+    try {
+      final WebPushStatus status = await _webPush.status();
+      _webStatus = status;
+      _permissionGranted = status.permissionGranted;
+      return status;
+    } catch (error) {
+      lastError = error.toString();
+      return _webStatus;
     }
   }
 
@@ -528,6 +644,20 @@ final class PushService {
 
   /// Sağlık panelinin canlı OneSignal kimlik/izin fotoğrafı.
   Future<PushDiagnostics> refreshDiagnostics(AppSettings settings) async {
+    if (isWeb) {
+      final WebPushStatus status = await webPushStatus();
+      return PushDiagnostics(
+        initialized: _initialized,
+        permissionGranted: status.permissionGranted || _permissionGranted,
+        externalId: _externalId,
+        expectedExternalId: externalIdFor(settings),
+        subscriptionId: null,
+        lastError: lastError,
+        isStandalonePwa: status.standalone,
+        webPushSupported: status.supported,
+        webPushOptedIn: status.optedIn,
+      );
+    }
     if (isSupported && _initialized) {
       try {
         _permissionGranted = OneSignal.Notifications.permission;

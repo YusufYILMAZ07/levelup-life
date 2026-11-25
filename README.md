@@ -285,6 +285,25 @@ push'u `duplicate:true` ile durdurur. REST anahtarı istemciye hiç inmez.
 > `pg_net` trigger rehberini uygula. İdempotency aynı olduğu için istemciyle
 > birlikte açık kalması çifte bildirim üretmez.
 
+## iPhone PWA · Web Push (Apple Developer olmadan)
+
+Native iOS imzası olmadan da iPhone 13 / iPhone 17 Pro'da ana ekran uygulaması
+ve **kapalıyken kilit ekranı bildirimi** alınabilir. iOS 16.4+ Safari'de
+**Paylaş → Ana Ekrana Ekle** → ana ekran simgesinden aç → Ayarlar → Sağlık
+Paneli → **Kapalıyken Bildirimleri Etkinleştir**.
+
+- `web/manifest.json` + `web/index.html`: CEYYUS PWA, `#0B1124` splash,
+  OneSignal Web SDK v16 köprüsü (`window.CeyyusWebPush`).
+- `web/push/onesignal/OneSignalSDKWorker.js`: Flutter service worker'ından
+  ayrı `/push/onesignal/` kapsamı.
+- `lib/services/web_push_bridge*.dart`: `dart:js_interop` köprüsü;
+  `PushService` oda kapsamlı `external_id` ile `login` yapar.
+- `vercel.json`: ücretsiz Vercel deploy (SPA rewrite + worker başlığı).
+- Adım adım rehber: [docs/IPHONE_PWA_SETUP.md](docs/IPHONE_PWA_SETUP.md).
+
+> Web push yalnızca HTTPS + iOS 16.4+ + ana ekrana eklenmiş PWA'da çalışır;
+> kamera kanıtı/Face ID gibi native özellikler web'de sınırlıdır.
+
 ## İzinler
 
 - **iOS** (`ios/Runner/Info.plist`): kamera, fotoğraf galerisi, mikrofon,

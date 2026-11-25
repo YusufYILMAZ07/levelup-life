@@ -1,4 +1,6 @@
-<!DOCTYPE html><html><head>
+<!DOCTYPE html>
+<html lang="tr">
+<head>
   <!--
     If you are serving your web app in a path other than the root, change the
     href value below to reflect the base path you are serving from.
@@ -17,98 +19,344 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="CEYYUS · Yusuf &amp; Ceyda ortak hayatını seviye atlatan çift uygulaması.">
-  <meta name="theme-color" content="#4F46E5">
+  <meta name="theme-color" content="#0B1124">
+  <meta name="format-detection" content="telephone=no">
 
-  <!-- iOS meta tags & icons -->
+  <!-- iPhone 13 çentik + iPhone 17 Pro Dynamic Island / Home Indicator -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+  <!-- iOS PWA meta etiketleri -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="CEYYUS">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png">
+  <!-- Favicon + manifest -->
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+  <link rel="manifest" href="manifest.json">
 
   <title>CEYYUS</title>
-  <link rel="manifest" href="manifest.json">
-  <style id="splash-screen-style">
-    html {
-      height: 100%
-    }
 
+  <!-- İlk yükleme: beyaz ekran yerine gece mavisi CEYYUS splash -->
+  <style>
+    html,
     body {
+      height: 100%;
       margin: 0;
-      min-height: 100%;
-      background-color: #F8FAFC;
-          background-size: 100% 100%;
+      padding: 0;
+      background-color: #0B1124;
+      overscroll-behavior: none;
     }
 
-    .center {
-      margin: 0;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      -ms-transform: translate(-50%, -50%);
-      transform: translate(-50%, -50%);
+    #ceyyus-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      background-color: #0B1124;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+        env(safe-area-inset-bottom) env(safe-area-inset-left);
+      transition: opacity 240ms ease-out;
+      -webkit-tap-highlight-color: transparent;
     }
 
-    .contain {
-      display:block;
-      width:100%; height:100%;
-      object-fit: contain;
+    #ceyyus-splash.ceyyus-splash-hidden {
+      opacity: 0;
+      pointer-events: none;
     }
 
-    .stretch {
-      display:block;
-      width:100%; height:100%;
+    #ceyyus-splash img {
+      width: 112px;
+      height: 112px;
+      border-radius: 26px;
+      box-shadow: 0 18px 48px rgba(230, 194, 159, 0.22);
     }
 
-    .cover {
-      display:block;
-      width:100%; height:100%;
-      object-fit: cover;
+    #ceyyus-splash .ceyyus-splash-title {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.42em;
+      text-indent: 0.42em;
+      color: #E6C29F;
     }
 
-    .bottom {
-      position: absolute;
-      bottom: 0;
-      left: 50%;
-      -ms-transform: translate(-50%, 0);
-      transform: translate(-50%, 0);
+    #ceyyus-splash .ceyyus-splash-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: #E6C29F;
+      animation: ceyyus-pulse 1.2s ease-in-out infinite;
     }
 
-    .bottomLeft {
-      position: absolute;
-      bottom: 0;
-      left: 0;
+    @keyframes ceyyus-pulse {
+      0%,
+      100% {
+        opacity: 0.25;
+        transform: scale(0.8);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.15);
+      }
     }
 
-    .bottomRight {
-      position: absolute;
-      bottom: 0;
-      right: 0;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      body {
-        background-color: #141026;
-          }
+    @media (prefers-reduced-motion: reduce) {
+      #ceyyus-splash .ceyyus-splash-dot {
+        animation: none;
+        opacity: 0.8;
+      }
     }
   </style>
-  <script id="splash-screen-script">
-    function removeSplashFromWeb() {
-      document.getElementById("splash")?.remove();
-      document.getElementById("splash-branding")?.remove();
-      document.body.style.background = "transparent";
-    }
-  </script>
-  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
 </head>
 <body>
-  <picture id="splash">
-      <source srcset="splash/img/light-1x.png 1x, splash/img/light-2x.png 2x, splash/img/light-3x.png 3x, splash/img/light-4x.png 4x" media="(prefers-color-scheme: light)">
-      <source srcset="splash/img/dark-1x.png 1x, splash/img/dark-2x.png 2x, splash/img/dark-3x.png 3x, splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
-      <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
-  </picture>
+  <div id="ceyyus-splash" role="status" aria-label="CEYYUS yükleniyor">
+    <img src="icons/Icon-192.png" width="112" height="112" alt="CEYYUS">
+    <span class="ceyyus-splash-title">CEYYUS</span>
+    <span class="ceyyus-splash-dot" aria-hidden="true"></span>
+  </div>
+
+  <noscript>
+    CEYYUS’u kullanmak için tarayıcında JavaScript’i etkinleştir.
+  </noscript>
+  <!-- OneSignal Web SDK v16 (iPhone PWA kilit ekranı push) -->
+  <script>
+    // Page SDK yüklenmeden önce kuyruğu biz oluşturuyoruz; SDK gelince
+    // buradaki init çağrıları sırayla çalışır.
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+  </script>
+  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+  <script>
+    /**
+     * CEYYUS Web Push köprüsü (OneSignal Web SDK v16).
+     *
+     * iOS 16.4+ Safari'de web push YALNIZCA:
+     *   1) site Ana Ekrana Eklendikten sonra,
+     *   2) ana ekran simgesinden açıldığında (standalone),
+     *   3) izin bir kullanıcı dokunuşuyla istendiğinde çalışır.
+     *
+     * Flutter tarafı (lib/services/push_service.dart) bu nesneyi
+     * `WebPushBridge` üzerinden çağırır. OneSignal service worker'ı
+     * `/push/onesignal/` kapsamına alınır; Flutter'ın kendi
+     * `flutter_service_worker.js` dosyasıyla çakışmaz.
+     */
+    window.CeyyusWebPush = (function () {
+      'use strict';
+
+      var sdk = null;
+      var appId = null;
+      var initPromise = null;
+      var initialized = false;
+      var lastError = null;
+      var INIT_TIMEOUT_MS = 12000;
+
+      function queue() {
+        window.OneSignalDeferred = window.OneSignalDeferred || [];
+        return window.OneSignalDeferred;
+      }
+
+      function isStandalone() {
+        try {
+          return window.matchMedia('(display-mode: standalone)').matches ||
+            window.navigator.standalone === true;
+        } catch (error) {
+          return false;
+        }
+      }
+
+      function isSupported() {
+        try {
+          return window.isSecureContext === true &&
+            'serviceWorker' in navigator &&
+            'PushManager' in window &&
+            'Notification' in window;
+        } catch (error) {
+          return false;
+        }
+      }
+
+      function withOneSignal(handler) {
+        return new Promise(function (resolve, reject) {
+          var settled = false;
+          var timer = setTimeout(function () {
+            if (settled) return;
+            settled = true;
+            lastError = 'OneSignal SDK zaman aşımı';
+            reject(new Error(lastError));
+          }, INIT_TIMEOUT_MS);
+
+          queue().push(async function (OneSignal) {
+            if (settled) return;
+            sdk = OneSignal;
+            try {
+              var value = await handler(OneSignal);
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              resolve(value);
+            } catch (error) {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              lastError = String(
+                error && error.message ? error.message : error
+              );
+              reject(error);
+            }
+          });
+        });
+      }
+
+      function getStatus(permissionOverride) {
+        var permission = false;
+        var optedIn = false;
+        try {
+          var api = sdk || window.OneSignal;
+          if (api && api.Notifications) {
+            permission = api.Notifications.permission === true;
+          }
+          if (api && api.User && api.User.PushSubscription) {
+            optedIn = api.User.PushSubscription.optedIn === true;
+          }
+          if (typeof window.Notification !== 'undefined' &&
+              window.Notification.permission === 'granted') {
+            permission = true;
+          }
+        } catch (error) {
+          lastError = String(error);
+        }
+        if (typeof permissionOverride === 'boolean') {
+          permission = permissionOverride;
+        }
+        return {
+          supported: isSupported(),
+          standalone: isStandalone(),
+          permission: permission,
+          optedIn: optedIn,
+          initialized: initialized,
+          error: lastError
+        };
+      }
+
+      async function init(appIdValue) {
+        var clean = typeof appIdValue === 'string' ? appIdValue.trim() : '';
+        if (clean.length === 0) {
+          throw new Error('OneSignal App ID gerekli');
+        }
+        if (!isSupported()) {
+          lastError = 'Web Push bu tarayıcıda desteklenmiyor';
+          return getStatus();
+        }
+        if (initPromise && appId === clean) {
+          return initPromise;
+        }
+        appId = clean;
+        initialized = false;
+        initPromise = withOneSignal(async function (OneSignal) {
+          await OneSignal.init({
+            appId: clean,
+            serviceWorkerPath: 'push/onesignal/OneSignalSDKWorker.js',
+            serviceWorkerParam: { scope: '/push/onesignal/' },
+            allowLocalhostAsSecureOrigin: true
+          });
+          initialized = true;
+          lastError = null;
+          return getStatus();
+        }).catch(function (error) {
+          initPromise = null;
+          initialized = false;
+          throw error;
+        });
+        return initPromise;
+      }
+
+      /**
+       * Yalnızca kullanıcı dokunuşuyla çağrılmalı (iOS PWA kuralı).
+       * İzin + abonelik opt-in birlikte yapılır.
+       */
+      async function requestPermission() {
+        if (!initialized) {
+          return getStatus();
+        }
+        return withOneSignal(async function (OneSignal) {
+          var granted = await OneSignal.Notifications.requestPermission();
+          if (granted === true) {
+            try {
+              await OneSignal.User.PushSubscription.optIn();
+            } catch (error) {
+              lastError = String(
+                error && error.message ? error.message : error
+              );
+            }
+          }
+          return getStatus(granted === true);
+        });
+      }
+
+      async function login(externalId) {
+        var clean = typeof externalId === 'string' ? externalId.trim() : '';
+        if (!initialized || clean.length === 0) {
+          return getStatus();
+        }
+        return withOneSignal(async function (OneSignal) {
+          await OneSignal.login(clean);
+          return getStatus();
+        });
+      }
+
+      async function logout() {
+        if (!initialized) {
+          return getStatus();
+        }
+        return withOneSignal(async function (OneSignal) {
+          await OneSignal.logout();
+          return getStatus();
+        });
+      }
+
+      return {
+        isStandalone: isStandalone,
+        init: init,
+        requestPermission: requestPermission,
+        login: login,
+        logout: logout,
+        getStatus: getStatus
+      };
+    })();
+  </script>
+
+  <!-- Flutter ilk kareyi çizince splash otomatik kalkar. -->
+  <script>
+    (function () {
+      var splash = document.getElementById('ceyyus-splash');
+      if (!splash) return;
+
+      var removed = false;
+      function hideSplash() {
+        if (removed) return;
+        removed = true;
+        splash.classList.add('ceyyus-splash-hidden');
+        setTimeout(function () {
+          if (splash.parentNode) splash.parentNode.removeChild(splash);
+        }, 260);
+      }
+
+      window.addEventListener('flutter-first-frame', hideSplash, {
+        once: true
+      });
+      // Ağ/derleme hatasında splash sonsuza kadar kalmasın.
+      window.addEventListener('load', function () {
+        setTimeout(hideSplash, 15000);
+      }, { once: true });
+    })();
+  </script>
+
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
@@ -117,7 +365,6 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <script src="flutter_bootstrap.js" async=""></script>
-
-
-</body></html>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

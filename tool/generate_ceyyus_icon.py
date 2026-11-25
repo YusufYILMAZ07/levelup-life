@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """CEYYUS marka görsellerini üretir (ikon + açılış ekranı).
 
-Tasarım: koyu erik/indigo zemin üzerinde gül gradyanlı kalp, içinde beyaz
-"CY" monogramı ve sağ üstte altın "seviye kıvılcımı". Harici font veya varlık
-kullanmaz; tüm şekiller vektörel çizilir (Pillow ≥ 10).
+Tasarım: gece mavisi (#0B1124) zemin üzerinde şampanya altını (#E6C29F)
+gradyanlı kalp, içinde lacivert "CY" monogramı ve sağ üstte parlak
+"seviye kıvılcımı". Harici font veya varlık kullanmaz; tüm şekiller
+vektörel çizilir (Pillow ≥ 10).
 
 Kullanım:
     python3 tool/generate_ceyyus_icon.py
@@ -27,12 +28,13 @@ from PIL import Image, ImageDraw, ImageFilter
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "assets", "icon")
 
-INK_TOP = (27, 16, 51)  # #1B1033
-INK_BOTTOM = (14, 9, 28)  # #0E091C
-ROSE_LIGHT = (251, 113, 133)  # #FB7185
-ROSE_DARK = (190, 18, 60)  # #BE123C
-GOLD_LIGHT = (253, 230, 138)  # #FDE68A
-INDIGO = (99, 102, 241)  # #6366F1
+INK_TOP = (11, 17, 36)  # #0B1124 gece mavisi
+INK_BOTTOM = (5, 8, 18)  # #050812
+CHAMPAGNE_LIGHT = (250, 236, 214)  # #FAECD6
+CHAMPAGNE = (230, 194, 159)  # #E6C29F
+CHAMPAGNE_DARK = (176, 126, 73)  # #B07E49
+GOLD_LIGHT = (255, 246, 232)  # #FFF6E8
+MIDNIGHT = (11, 17, 36)  # #0B1124 (monogram)
 WHITE = (255, 255, 255)
 
 SS = 2  # süper örnekleme (anti-aliasing)
@@ -155,17 +157,17 @@ def emblem(size: tuple[int, int], center: tuple[float, float],
             fill=WHITE + (255,))
         return canvas
 
-    # Kalp gövdesi: gül gradyanı.
-    body = gradient(size, ROSE_LIGHT, ROSE_DARK).convert("RGBA")
+    # Kalp gövdesi: şampanya altını gradyanı.
+    body = gradient(size, CHAMPAGNE_LIGHT, CHAMPAGNE_DARK).convert("RGBA")
     body.putalpha(mask)
     canvas.alpha_composite(body)
 
     # Üst ışık: hacim hissi (kalp maskesiyle sınırlı).
-    highlight = Image.new("RGBA", size, (255, 255, 255, 0))
+    highlight = Image.new("RGBA", size, (255, 250, 242, 0))
     ImageDraw.Draw(highlight).ellipse(
         [cx - width * 0.46, cy - heart_h * 0.56,
          cx + width * 0.18, cy - heart_h * 0.02],
-        fill=(255, 255, 255, 58))
+        fill=(255, 252, 246, 96))
     highlight = highlight.filter(ImageFilter.GaussianBlur(width * 0.045))
     highlight.putalpha(Image.composite(highlight.getchannel("A"),
                                        Image.new("L", size, 0), mask))
@@ -174,20 +176,20 @@ def emblem(size: tuple[int, int], center: tuple[float, float],
     # İnce kenar ışığı.
     rim = Image.new("RGBA", size, (255, 255, 255, 0))
     ImageDraw.Draw(rim).line(points + [points[0]],
-                             fill=(255, 228, 230, 90),
+                             fill=(255, 242, 222, 190),
                              width=max(2, int(width * 0.010)))
     canvas.alpha_composite(rim)
 
     draw_monogram(canvas, cx, cy - heart_h * 0.02, width, heart_h,
-                  (255, 255, 255, 236))
+                  MIDNIGHT + (238,))
 
-    # Kıvılcım: yumuşak altın ışıma + keskin yıldız.
+    # Kıvılcım: yumuşak şampanya ışıma + keskin yıldız.
     spark_c = (cx + width * 0.46, cy - heart_h * 0.40)
     outer = width * 0.145
     glow = Image.new("RGBA", size, (0, 0, 0, 0))
     ImageDraw.Draw(glow).polygon(
         star_points(*spark_c, outer * 1.35, outer * 0.34),
-        fill=GOLD_LIGHT + (150,))
+        fill=CHAMPAGNE + (190,))
     canvas.alpha_composite(
         glow.filter(ImageFilter.GaussianBlur(width * 0.030)))
 
@@ -196,14 +198,14 @@ def emblem(size: tuple[int, int], center: tuple[float, float],
     sd.polygon(star_points(*spark_c, outer, outer * 0.24),
                fill=GOLD_LIGHT + (255,))
     sd.polygon(star_points(*spark_c, outer * 0.62, outer * 0.15),
-               fill=(255, 255, 255, 235))
+               fill=(255, 255, 255, 245))
     canvas.alpha_composite(spark)
 
     # Küçük ikinci kıvılcım (sol üst) kompozisyonu dengeler.
     ImageDraw.Draw(canvas).polygon(
         star_points(cx - width * 0.52, cy - heart_h * 0.46,
                     width * 0.055, width * 0.014),
-        fill=GOLD_LIGHT + (210,))
+        fill=CHAMPAGNE + (235,))
     return canvas
 
 
@@ -213,11 +215,11 @@ def launcher_icon(px: int) -> Image.Image:
     w, h = size
     base = gradient(size, INK_TOP, INK_BOTTOM).convert("RGBA")
     base.alpha_composite(radial_glow(size, (w * 0.50, h * 0.46), w * 0.44,
-                                     (225, 29, 72), 96))
+                                     CHAMPAGNE, 86))
     base.alpha_composite(radial_glow(size, (w * 0.90, h * 0.10), w * 0.38,
-                                     INDIGO, 92))
+                                     (37, 99, 235), 74))
     base.alpha_composite(radial_glow(size, (w * 0.08, h * 0.92), w * 0.30,
-                                     (59, 130, 246), 58))
+                                     (56, 189, 248), 46))
     base.alpha_composite(emblem(size, (w * 0.5, h * 0.48), w * 0.58))
     return base.convert("RGB").resize((px, px), Image.LANCZOS)
 

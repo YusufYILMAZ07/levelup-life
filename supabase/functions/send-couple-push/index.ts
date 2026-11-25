@@ -1,4 +1,4 @@
-// LevelUp Life · v6.1 · `send-couple-push` Edge Function
+// CEYYUS · v6.4 · `send-couple-push` Edge Function
 //
 // OneSignal REST API anahtarı YALNIZCA sunucuda durur. Fonksiyon:
 //   1) istemci çağrısında Anonymous Auth oturumunu doğrular,
@@ -8,8 +8,12 @@
 //   5) `push_deliveries` atomik claim ile çifte push'u engeller,
 //   6) OneSignal'a yüksek öncelikli, oda kapsamlı `external_id` push'u atar.
 //
+// v6.4: iOS PWA (Web Push) için opsiyonel `web_url` / `url` desteği eklendi;
+// bildirime dokununca iPhone doğrudan CEYYUS ana ekran uygulamasını açar.
+//
 // Secret'lar:
 //   supabase secrets set ONESIGNAL_APP_ID=... ONESIGNAL_REST_API_KEY=...
+//   # opsiyonel: supabase secrets set CEYYUS_WEB_URL=https://ceyyus.vercel.app/
 // Deploy:
 //   supabase functions deploy send-couple-push
 //
@@ -37,6 +41,9 @@ interface PushBody {
   contents?: string;
   urgent?: boolean;
   data?: Record<string, unknown>;
+  /// iPhone PWA / Web Push: bildirime dokununca açılacak HTTPS adresi.
+  web_url?: string;
+  url?: string;
 }
 
 interface MessageRow {
@@ -77,6 +84,24 @@ function cleanIdentifier(value: unknown, max: number): string | null {
 
 function displayName(role: string): string {
   return role === "ceyda" ? "Ceyda 🌸" : "Yusuf 💻";
+}
+
+/// Yalnızca güvenli `https://` mutlak adres kabul eder; aksi hâlde `null`.
+///
+/// `web_url` / `url` OneSignal Web Push bildirimine tıklandığında iPhone'un
+/// doğrudan CEYYUS PWA'sını açmasını sağlar. `javascript:` / `http:` gibi
+/// değerler sunucuda reddedilir.
+function cleanWebUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (text.length < 12 || text.length > 512) return null;
+  try {
+    const parsed = new URL(text);
+    if (parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 function otherRole(role: string): string {
@@ -292,7 +317,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return json({ error: "invalid_recipient" }, 400);
     }
     const preview = payloadPreview(row.payload);
-    headings = headings || `LevelUp Life · ${displayName(senderId)}`;
+    headings = headings || `CEYYUS · ${displayName(senderId)}`;
     contents = contents || preview;
     if (type === "nudge") {
       headings = `💫 Dürtme · ${displayName(senderId)}`;
@@ -305,7 +330,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (recipientId !== otherRole(senderId)) {
       return json({ error: "invalid_recipient" }, 400);
     }
-    headings = headings || "LevelUp Life · OneSignal 💞";
+    headings = headings || "CEYYUS · OneSignal 💞";
     contents = contents || "Partnerinden yeni bir bildirim var.";
   }
 
@@ -378,6 +403,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     route: "chat",
   };
 
+  // iPhone PWA / Web Push: bildirime dokununca açılacak adres.
+  // Öncelik: istemci `web_url` → istemci `url` → sunucu `CEYYUS_WEB_URL`.
+  const webUrl = cleanWebUrl(body.web_url) ??
+    cleanWebUrl(body.url) ??
+    cleanWebUrl(Deno.env.get("CEYYUS_WEB_URL"));
+
   const notification: Record<string, unknown> = {
     app_id: oneSignalAppId,
     include_aliases: {
@@ -400,6 +431,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   };
   if (nudge) {
     notification.collapse_id = nudgeCollapseId(roomCode, senderId);
+  }
+  if (webUrl !== null) {
+    notification.web_url = webUrl;
+    notification.url = webUrl;
   }
 
   let response: Response;
@@ -453,6 +488,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       onesignal_status: response.status,
       id: oneSignalId,
       external_id: scopedExternalId(roomCode, recipientId),
+      web_url: webUrl,
     },
     response.ok ? 200 : 502,
   );
