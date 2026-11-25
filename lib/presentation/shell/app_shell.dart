@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -103,14 +106,20 @@ class _ShellNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // iOS PWA'da SafeArea, Home Indicator alt insetini bazen 0 ölçer.
+    // Web'de en az 16 pt bırakarak sekmelerin dokunma alanını koruruz.
+    final double bottomInset = MediaQuery.paddingOf(context).bottom;
+    final double safeBottom = kIsWeb
+        ? math.max(bottomInset, 16.0)
+        : bottomInset;
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: AppColors.surface,
         border: Border(top: BorderSide(color: AppColors.border)),
         boxShadow: AppShadows.card,
       ),
-      child: SafeArea(
-        top: false,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: safeBottom),
         child: Center(
           // `heightFactor: 1` şart: varsayılan Center kısıtlı yükseklikte
           // tüm gövdeyi kaplar ve Scaffold'a yer bırakmaz.
@@ -128,16 +137,22 @@ class _ShellNavBar extends StatelessWidget {
                 children: <Widget>[
                   for (int i = 0; i < tabs.length; i++)
                     Expanded(
-                      child: Align(
-                        alignment: Alignment.center,
-                        // `heightFactor: 1` → buton satırı içeriğe göre
-                        // yükselir; aksi halde Align mevcut yüksekliğin
-                        // tamamını kaplar ve Scaffold gövdesine yer kalmaz.
-                        heightFactor: 1,
-                        child: _NavButton(
-                          tab: tabs[i],
-                          selected: i == index,
-                          onTap: () => onSelect(i),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        excludeFromSemantics: true,
+                        onTap: () => onSelect(i),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 54),
+                          child: Center(
+                            // Görsel pill dar kalır; tıklama alanı ise
+                            // Expanded hücresinin tamamını kaplar.
+                            heightFactor: 1,
+                            child: _NavButton(
+                              tab: tabs[i],
+                              selected: i == index,
+                              onTap: () => onSelect(i),
+                            ),
+                          ),
                         ),
                       ),
                     ),
