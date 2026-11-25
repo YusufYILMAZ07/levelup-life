@@ -271,6 +271,17 @@ class _MoodCapsuleSheetState extends State<_MoodCapsuleSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: AppRadii.pillAll,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
             Row(
               children: <Widget>[
                 Text(capsule.emoji, style: const TextStyle(fontSize: 28)),
@@ -293,6 +304,16 @@ class _MoodCapsuleSheetState extends State<_MoodCapsuleSheet> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+                IconButton(
+                  key: const Key('mood-sheet-close'),
+                  tooltip: 'Kapat',
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    size: 20,
+                    color: AppColors.textTertiary,
                   ),
                 ),
               ],

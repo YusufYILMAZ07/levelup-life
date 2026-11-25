@@ -19,21 +19,28 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final int index = ref.watch(shellTabProvider);
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: IndexedStack(
-        index: index,
-        children: const <Widget>[
-          DashboardScreen(key: ValueKey<String>('dashboard')),
-          DevelopmentScreen(key: ValueKey<String>('development')),
-          ChatScreen(key: ValueKey<String>('chat')),
-          ProgressScreen(key: ValueKey<String>('progress')),
-        ],
-      ),
-      bottomNavigationBar: _ShellNavBar(
-        tabs: _tabs,
-        index: index,
-        onSelect: ref.read(shellTabProvider.notifier).goTo,
+    return PopScope(
+      canPop: index == ShellTabController.today,
+      onPopInvokedWithResult: (bool didPop, Object? result) {
+        if (didPop || index == ShellTabController.today) return;
+        ref.read(shellTabProvider.notifier).goTo(ShellTabController.today);
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: IndexedStack(
+          index: index,
+          children: const <Widget>[
+            DashboardScreen(key: ValueKey<String>('dashboard')),
+            DevelopmentScreen(key: ValueKey<String>('development')),
+            ChatScreen(key: ValueKey<String>('chat')),
+            ProgressScreen(key: ValueKey<String>('progress')),
+          ],
+        ),
+        bottomNavigationBar: _ShellNavBar(
+          tabs: _tabs,
+          index: index,
+          onSelect: ref.read(shellTabProvider.notifier).goTo,
+        ),
       ),
     );
   }

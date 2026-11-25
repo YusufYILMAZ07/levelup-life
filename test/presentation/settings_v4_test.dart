@@ -29,29 +29,54 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> openSubpage(WidgetTester tester, Key rowKey) async {
+    final Finder row = find.byKey(rowKey);
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('v4 ayar bölümleri (avatar, bildirim, PIN, bulut) görünür', (
     WidgetTester tester,
   ) async {
     await openSettings(tester);
 
+    expect(find.byKey(const Key('settings-screen')), findsOneWidget);
+    expect(find.byKey(const Key('settings-profile-card')), findsOneWidget);
+    expect(find.text('ENERJİ MODU'), findsOneWidget);
+
+    await openSubpage(tester, const Key('settings-profile'));
     expect(find.text('Profil fotoğrafları'), findsOneWidget);
     expect(find.text('📱 Bu Telefon Kimin?'), findsOneWidget);
     expect(find.byKey(const Key('device-owner-yusuf')), findsOneWidget);
     expect(find.byKey(const Key('device-owner-ceyda')), findsOneWidget);
     expect(find.byKey(const Key('device-test-mode')), findsOneWidget);
+    expect(find.byKey(const Key('avatar-yusuf')), findsOneWidget);
+    expect(find.byKey(const Key('avatar-ceyda')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('identity-back')));
+    await tester.pumpAndSettle();
+
+    await openSubpage(tester, const Key('settings-notifications'));
     expect(find.byKey(const Key('onesignal-app-id')), findsOneWidget);
     // v6: REST anahtarı istemciden kaldırıldı.
     expect(find.byKey(const Key('onesignal-rest-key')), findsNothing);
     expect(find.byKey(const Key('notif-dnd')), findsOneWidget);
-    expect(find.byKey(const Key('pin-grace')), findsOneWidget);
-    expect(find.byKey(const Key('biometric-toggle')), findsOneWidget);
-    expect(find.byKey(const Key('avatar-yusuf')), findsOneWidget);
-    expect(find.byKey(const Key('avatar-ceyda')), findsOneWidget);
     expect(find.byKey(const Key('notif-messages')), findsOneWidget);
     expect(find.byKey(const Key('notif-plan')), findsOneWidget);
     expect(find.byKey(const Key('notif-checkin')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('notifications-back')));
+    await tester.pumpAndSettle();
+
+    await openSubpage(tester, const Key('settings-privacy'));
+    expect(find.byKey(const Key('pin-grace')), findsOneWidget);
+    expect(find.byKey(const Key('biometric-toggle')), findsOneWidget);
     expect(find.byKey(const Key('pin-toggle')), findsOneWidget);
     expect(find.byKey(const Key('pin-change')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('privacy-back')));
+    await tester.pumpAndSettle();
+
+    await openSubpage(tester, const Key('settings-cloud'));
     expect(find.byKey(const Key('cloud-url')), findsOneWidget);
     expect(find.byKey(const Key('cloud-key')), findsOneWidget);
     expect(find.byKey(const Key('cloud-room')), findsOneWidget);
@@ -63,16 +88,35 @@ void main() {
     expect(find.text('Bu Telefon: Yusuf 💻'), findsOneWidget);
   });
 
+  testWidgets('sistem geri tuşu açık ayar alt sayfasını kapatır', (
+    WidgetTester tester,
+  ) async {
+    await openSettings(tester);
+    await openSubpage(tester, const Key('settings-profile'));
+    expect(find.byKey(const Key('profile-identity-page')), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('profile-identity-page')), findsNothing);
+    expect(find.byKey(const Key('settings-screen')), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-screen')), findsNothing);
+  });
+
   testWidgets('mesaj bildirimi anahtarı ayarı kalıcı olarak değiştirir', (
     WidgetTester tester,
   ) async {
     await openSettings(tester);
 
     final ProviderContainer container = ProviderScope.containerOf(
-      tester.element(find.byType(DashboardScreen)),
+      tester.element(find.byKey(const Key('settings-screen'))),
     );
     expect(container.read(appSettingsProvider).messageNotifications, isTrue);
 
+    await openSubpage(tester, const Key('settings-notifications'));
     final Finder notif = find.byKey(const Key('notif-messages'));
     await tester.ensureVisible(notif);
     await tester.pumpAndSettle();
@@ -88,10 +132,11 @@ void main() {
     await openSettings(tester);
 
     final ProviderContainer container = ProviderScope.containerOf(
-      tester.element(find.byType(DashboardScreen)),
+      tester.element(find.byKey(const Key('settings-screen'))),
     );
     expect(container.read(appSettingsProvider).pinLockEnabled, isFalse);
 
+    await openSubpage(tester, const Key('settings-privacy'));
     final Finder pinToggle = find.byKey(const Key('pin-toggle'));
     await tester.ensureVisible(pinToggle);
     await tester.pumpAndSettle();

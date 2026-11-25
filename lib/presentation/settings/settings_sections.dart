@@ -1,0 +1,2277 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
+
+import '../../../application/game_controller.dart';
+import '../../../application/game_state.dart';
+import '../../../application/pin_lock_controller.dart';
+import '../../../core/theme/theme.dart';
+import '../../../domain/entities/entities.dart';
+import '../../../services/app_settings.dart';
+import '../../../services/backup_service.dart';
+import '../../../services/biometric_service.dart';
+import '../../../services/cloud_sync_coordinator.dart';
+import '../../../services/media_service.dart';
+import '../../../services/notification_service.dart';
+import '../../../services/push_service.dart';
+import '../../../services/supabase_sync_service.dart';
+import '../../../services/web_push_bridge.dart';
+import '../widgets/in_app_notification_banner.dart';
+import '../widgets/partner_avatar.dart';
+import '../widgets/section_header.dart';
+
+/// Enerji modu seçici (Bugün ekranından hızlıca açılır).
+class EnergyModePicker extends ConsumerWidget {
+  const EnergyModePicker({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GameState state = ref.watch(gameProvider);
+    final UserProfile? profile = state.profile;
+    if (profile == null) return const SizedBox.shrink();
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: <Widget>[
+        for (final EnergyMode mode in EnergyMode.values)
+          _EnergyOption(
+            mode: mode,
+            selected: profile.energyMode == mode,
+            onTap: () => ref.read(gameProvider.notifier).setEnergyMode(mode),
+          ),
+      ],
+    );
+  }
+}
+
+class _EnergyOption extends StatelessWidget {
+  const _EnergyOption({
+    required this.mode,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final EnergyMode mode;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = mode.color;
+    return Material(
+      color: selected ? color.withValues(alpha: 0.10) : AppColors.surface,
+      borderRadius: AppRadii.pillAll,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadii.pillAll,
+        child: AnimatedContainer(
+          duration: AppMotion.fast,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm + 1,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: AppRadii.pillAll,
+            border: Border.all(
+              color: selected ? color : AppColors.border,
+              width: selected ? 1.4 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(mode.icon, size: 15, color: color),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                mode.label,
+                style: AppTypography.caption.copyWith(
+                  color: selected ? color : AppColors.textSecondary,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DeviceIdentitySettings extends ConsumerWidget {
+  const _DeviceIdentitySettings();
+
+  void _choose(WidgetRef ref, String partnerId) {
+    ref.read(appSettingsProvider.notifier).configureDeviceOwner(partnerId);
+    ref.read(gameProvider.notifier).enforceDeviceOwner();
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    final String owner = settings.deviceRole;
+    final String partner = CouplePartner.other(owner);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SectionHeader(
+          title: '📱 Bu Telefon Kimin?',
+          subtitle:
+              'Her iPhone kendi sahibiyle açılır; yanlış isimle mesaj veya '
+              'puan girilmez.',
+        ),
+        if (!settings.deviceOwnerConfigured)
+          Container(
+            margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.07),
+              borderRadius: AppRadii.mdAll,
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.20),
+              ),
+            ),
+            child: Text(
+              'İlk kurulum: Bu telefonu bir kez seç. Sonra istediğin zaman '
+              'aşağıdan değiştirebilirsin 💞',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+                height: 1.4,
+              ),
+            ),
+          ),
+        Row(
+          children: <Widget>[
+            for (final String id in CouplePartner.ids) ...<Widget>[
+              Expanded(
+                child: _RoleChip(
+                  key: Key('device-owner-$id'),
+                  partnerId: id,
+                  selected: owner == id,
+                  onTap: () => _choose(ref, id),
+                ),
+              ),
+              if (id != CouplePartner.ids.last)
+                const SizedBox(width: AppSpacing.sm),
+            ],
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Container(
+          key: const Key('device-identity-pill'),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceMuted,
+            borderRadius: AppRadii.pillAll,
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: <Widget>[
+              Text(
+                CouplePalette.emojiOf(owner),
+                style: const TextStyle(fontSize: 14),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(
+                child: Text(
+                  '${CouplePalette.nameOf(owner)} · '
+                  '${CouplePalette.nameOf(partner)} ile Bağlı 🟢',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SwitchListTile.adaptive(
+          key: const Key('device-test-mode'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          secondary: const Icon(
+            Icons.science_rounded,
+            size: 20,
+            color: AppColors.textSecondary,
+          ),
+          title: Text(
+            'Tek Cihaz Test Modu (Profil Değiştirmeyi Aç)',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            settings.lockToDeviceOwner
+                ? 'Kapalı · bu telefon $owner profiline kilitli'
+                : 'Açık · üst bardan Yusuf ⇄ Ceyda geçişi yapılabilir',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          value: !settings.lockToDeviceOwner,
+          onChanged: (bool enabled) => ref
+              .read(appSettingsProvider.notifier)
+              .setLockToDeviceOwner(!enabled),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfilePhotoSettings extends ConsumerWidget {
+  const _ProfilePhotoSettings();
+
+  Future<void> _pick(
+    BuildContext context,
+    WidgetRef ref,
+    String partnerId,
+  ) async {
+    try {
+      final AppSettings settings = ref.read(appSettingsProvider);
+      final PickedMedia? picked = await MediaService().pickAvatar(
+        allowCloudUpload: settings.isCloudConfigured,
+      );
+      if (picked == null) return;
+      String source = picked.source;
+      final Uint8List? bytes = picked.bytes;
+      if (bytes != null &&
+          (source.isEmpty || source.startsWith('data:')) &&
+          settings.isCloudConfigured) {
+        // Web: 250 KB üstü avatar base64 gömülmez; Supabase Storage'a yüklenir.
+        final String? uploaded = await ref
+            .read(cloudSyncProvider)
+            .uploadMediaBytes(
+              bytes: bytes,
+              fileName: picked.uploadFileName,
+              contentType: picked.contentType,
+            );
+        if (uploaded != null) source = uploaded;
+      }
+      if (!context.mounted) return;
+      if (source.trim().isEmpty) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('☁️ Fotoğraf yüklenemedi · bağlantıyı kontrol et.'),
+            ),
+          );
+        return;
+      }
+      ref.read(appSettingsProvider.notifier).setAvatar(partnerId, source);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Profil fotoğrafı güncellendi 🌸'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+    } on MediaPickException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SectionHeader(
+          title: 'Profil fotoğrafları',
+          subtitle: 'Sohbette ve üst barda gerçek fotoğraflarınız görünür.',
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Row(
+          children: <Widget>[
+            for (final String id in CouplePartner.ids) ...<Widget>[
+              Expanded(
+                child: _AvatarTile(
+                  partnerId: id,
+                  source: settings.avatarOf(id),
+                  onPick: () => _pick(context, ref, id),
+                  onRemove: () =>
+                      ref.read(appSettingsProvider.notifier).clearAvatar(id),
+                ),
+              ),
+              if (id != CouplePartner.ids.last)
+                const SizedBox(width: AppSpacing.sm),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _AvatarTile extends StatelessWidget {
+  const _AvatarTile({
+    required this.partnerId,
+    required this.source,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  final String partnerId;
+  final String source;
+  final VoidCallback onPick;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfaceMuted,
+      borderRadius: AppRadii.mdAll,
+      child: InkWell(
+        key: Key('avatar-$partnerId'),
+        onTap: onPick,
+        borderRadius: AppRadii.mdAll,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            children: <Widget>[
+              PartnerAvatar(partnerId: partnerId, size: 56, showRing: true),
+              const SizedBox(height: AppSpacing.xs + 2),
+              Text(
+                CouplePalette.nameOf(partnerId),
+                style: AppTypography.subtitle.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                source.trim().isEmpty ? 'Fotoğraf seç' : 'Değiştir',
+                style: AppTypography.caption.copyWith(
+                  color: CouplePalette.colorOf(partnerId),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                ),
+              ),
+              if (source.trim().isNotEmpty)
+                TextButton(
+                  key: Key('avatar-clear-$partnerId'),
+                  onPressed: onRemove,
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(40, 26),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    'Kaldır',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textTertiary,
+                      fontSize: 9,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationSettings extends ConsumerWidget {
+  const _NotificationSettings();
+
+  Future<void> _pickCheckinTime(BuildContext context, WidgetRef ref) async {
+    final AppSettings settings = ref.read(appSettingsProvider);
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: settings.dailyCheckinHour,
+        minute: settings.dailyCheckinMinute,
+      ),
+      helpText: 'Akşam puanı hatırlatma saati',
+    );
+    if (picked == null || !context.mounted) return;
+    ref
+        .read(appSettingsProvider.notifier)
+        .setDailyCheckinTime(hour: picked.hour, minute: picked.minute);
+  }
+
+  Future<void> _pickQuietRange(BuildContext context, WidgetRef ref) async {
+    final AppSettings settings = ref.read(appSettingsProvider);
+    final TimeOfDay? start = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: settings.quietStartMinutes ~/ 60,
+        minute: settings.quietStartMinutes % 60,
+      ),
+      helpText: 'Sessiz saatler başlangıcı',
+    );
+    if (start == null || !context.mounted) return;
+    final TimeOfDay? end = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: settings.quietEndMinutes ~/ 60,
+        minute: settings.quietEndMinutes % 60,
+      ),
+      helpText: 'Sessiz saatler bitişi',
+    );
+    if (end == null || !context.mounted) return;
+    ref
+        .read(appSettingsProvider.notifier)
+        .setDoNotDisturb(
+          enabled: true,
+          startMinutes: start.hour * 60 + start.minute,
+          endMinutes: end.hour * 60 + end.minute,
+        );
+  }
+
+  Future<void> _sendTest(BuildContext context, WidgetRef ref) async {
+    // Test bildirimi, bu telefonun sahibi olmayan partnerden geliyormuş gibi
+    // görünür; sabit isim yanlış cihazda kafa karıştırıyordu.
+    final String sender = CouplePartner.other(
+      ref.read(appSettingsProvider).deviceRole,
+    );
+    // Her platformda anında görünen iOS-tarzı floating banner.
+    InAppNotificationCenter.instance.show(
+      title: '${CouplePalette.nameOf(sender)} ${CouplePalette.emojiOf(sender)}',
+      body: 'Sana örnek bir mesaj gönderdi · bildirimler hazır 💞',
+      emoji: CouplePalette.emojiOf(sender),
+      kind: InAppNotificationKind.test,
+      payload: 'test',
+    );
+    final bool ok = await NotificationService.instance.showTestNotification();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            ok
+                ? '🔔 Floating banner + OS bildirimi gönderildi'
+                : 'Floating banner hazır · OS bildirimi bu cihazda kapalı '
+                      '(Web / izin yok).',
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    final AppSettingsController controller = ref.read(
+      appSettingsProvider.notifier,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SectionHeader(
+          title: 'Bildirimler',
+          subtitle: 'Kilit ekranında gerçek bildirimler · izin istenir.',
+        ),
+        _ToggleTile(
+          key: const Key('notif-messages'),
+          icon: Icons.chat_bubble_rounded,
+          title: 'Mesaj Bildirimleri',
+          subtitle: 'Yeni mesaj, fotoğraf, video ve dürtmeler',
+          value: settings.messageNotifications,
+          onChanged: controller.setMessageNotifications,
+        ),
+        _ToggleTile(
+          key: const Key('notif-plan'),
+          icon: Icons.alarm_rounded,
+          title: 'Plan Başlangıç Hatırlatıcısı',
+          subtitle: 'Her plan bloğundan 10 dakika önce',
+          value: settings.planReminders,
+          onChanged: controller.setPlanReminders,
+        ),
+        _ToggleTile(
+          key: const Key('notif-checkin'),
+          icon: Icons.nightlight_round,
+          title: 'Akşam Puanlama Hatırlatıcısı',
+          subtitle: 'Her akşam ${settings.dailyCheckinLabel} · 1-2-3 puanları',
+          value: settings.dailyCheckinReminder,
+          onChanged: controller.setDailyCheckinReminder,
+        ),
+        ListTile(
+          key: const Key('notif-checkin-time'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          leading: const Icon(
+            Icons.schedule_rounded,
+            size: 20,
+            color: AppColors.textSecondary,
+          ),
+          title: Text(
+            'Check-in saati',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            settings.dailyCheckinLabel,
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.textTertiary,
+          ),
+          onTap: () => _pickCheckinTime(context, ref),
+        ),
+        _ToggleTile(
+          key: const Key('notif-dnd'),
+          icon: Icons.do_not_disturb_on_rounded,
+          title: 'Sessiz Saatler (DND)',
+          subtitle: '${settings.quietHoursLabel} · bildirim gönderilmez',
+          value: settings.doNotDisturbEnabled,
+          onChanged: (bool value) => controller.setDoNotDisturb(enabled: value),
+        ),
+        if (settings.doNotDisturbEnabled)
+          ListTile(
+            key: const Key('notif-dnd-range'),
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            leading: const Icon(
+              Icons.bedtime_rounded,
+              size: 20,
+              color: AppColors.textSecondary,
+            ),
+            title: Text(
+              'Sessiz aralık',
+              style: AppTypography.subtitle.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+            subtitle: Text(
+              settings.quietHoursLabel,
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textTertiary,
+              ),
+            ),
+            trailing: const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.textTertiary,
+            ),
+            onTap: () => _pickQuietRange(context, ref),
+          ),
+        const SizedBox(height: AppSpacing.xs),
+        OutlinedButton.icon(
+          key: const Key('notif-test'),
+          onPressed: () => _sendTest(context, ref),
+          icon: const Icon(Icons.notifications_active_rounded, size: 18),
+          label: const Text('🔔 Örnek Partner Mesajı Bildirimi Test Et'),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        const _PushSettings(),
+        const SizedBox(height: AppSpacing.lg),
+        const _NotificationHealthPanel(),
+      ],
+    );
+  }
+}
+
+class _PushSettings extends ConsumerStatefulWidget {
+  const _PushSettings();
+
+  @override
+  ConsumerState<_PushSettings> createState() => _PushSettingsState();
+}
+
+class _PushSettingsState extends ConsumerState<_PushSettings> {
+  late final TextEditingController _appId;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final AppSettings settings = ref.read(appSettingsProvider);
+    _appId = TextEditingController(text: settings.oneSignalAppId);
+  }
+
+  @override
+  void dispose() {
+    _appId.dispose();
+    super.dispose();
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 4)),
+      );
+  }
+
+  Future<void> _save() async {
+    setState(() => _busy = true);
+    ref.read(appSettingsProvider.notifier).savePushConfig(appId: _appId.text);
+    final bool ok = await PushService.instance.initialize(
+      ref.read(appSettingsProvider),
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _snack(
+      ok
+          ? 'OneSignal hazır · kapalıyken de bildirimler açık 🔔'
+          : 'Ayar kaydedildi · OneSignal başlatılamadı (Web/test olabilir).',
+    );
+  }
+
+  Future<void> _test() async {
+    setState(() => _busy = true);
+    final PushResult result = await PushService.instance.sendTest(
+      ref.read(appSettingsProvider),
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _snack(result.message);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        SectionHeader(
+          title: '🔔 Kapalıyken de Bildirim (OneSignal Push)',
+          subtitle:
+              'Uygulama kapalıyken bile partnerine ulaş. Yalnızca App ID '
+              'gerekir; REST anahtarı Supabase Edge Function’da saklanır.',
+          trailing: InfoPill(
+            label: settings.isPushConfigured ? 'Hazır' : 'Kurulmadı',
+            color: settings.isPushConfigured
+                ? AppColors.success
+                : AppColors.textTertiary,
+            dense: true,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _CloudField(
+          key: const Key('onesignal-app-id'),
+          controller: _appId,
+          label: 'OneSignal App ID',
+          hint: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: <Widget>[
+            FilledButton.icon(
+              key: const Key('onesignal-save'),
+              onPressed: _busy ? null : _save,
+              icon: const Icon(Icons.lock_rounded, size: 16),
+              label: Text(_busy ? 'Kaydediliyor…' : 'Push’u Etkinleştir'),
+            ),
+            OutlinedButton.icon(
+              key: const Key('onesignal-test'),
+              onPressed: _busy ? null : _test,
+              icon: const Icon(Icons.rocket_launch_rounded, size: 16),
+              label: const Text('🚀 OneSignal Push Testi Gönder'),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'iOS’ta gerçek teslimat için OneSignal paneline APNs anahtarını '
+          'eklemen gerekir. REST anahtarı yalnızca bu cihazda saklanır.',
+          style: AppTypography.caption.copyWith(
+            color: AppColors.textTertiary,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Tek ekranda bildirim & senkron sağlığını gösteren üretim paneli.
+class _NotificationHealthPanel extends ConsumerStatefulWidget {
+  const _NotificationHealthPanel();
+
+  @override
+  ConsumerState<_NotificationHealthPanel> createState() =>
+      _NotificationHealthPanelState();
+}
+
+class _NotificationHealthPanelState
+    extends ConsumerState<_NotificationHealthPanel> {
+  bool _busy = false;
+  bool _testBusy = false;
+  bool _localPermission = false;
+  PushDiagnostics? _diagnostics;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
+  }
+
+  Future<void> _refresh() async {
+    if (!mounted) return;
+    setState(() => _busy = true);
+    final AppSettings settings = ref.read(appSettingsProvider);
+    // Widget testlerinde / platform kanalı yokken spinner sonsuza kadar
+    // dönmesin: her tanı çağrısı kısa timeout ile güvenli varsayılana düşer.
+    final bool local = await NotificationService.instance
+        .hasPermission()
+        .timeout(const Duration(seconds: 2), onTimeout: () => false);
+    final PushDiagnostics diagnostics = await PushService.instance
+        .refreshDiagnostics(settings)
+        .timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => PushDiagnostics(
+            initialized: false,
+            permissionGranted: false,
+            externalId: PushService.externalIdFor(settings),
+            expectedExternalId: PushService.externalIdFor(settings),
+            subscriptionId: null,
+            lastError: 'Tanı zaman aşımı',
+          ),
+        );
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _localPermission = local;
+      _diagnostics = diagnostics;
+    });
+  }
+
+  Future<void> _requestPermission() async {
+    if (kIsWeb) {
+      await _enableWebPush();
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _busy = true);
+    try {
+      await NotificationService.instance.requestPermissions();
+      if (!mounted) return;
+      await PushService.instance.initialize(ref.read(appSettingsProvider));
+    } catch (_) {
+      // İzin akışı istisna fırlatsa bile panel düğmeleri kilitli kalmaz.
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    // İzin ve sağlık rozetleri anında güncellensin.
+    await _refresh();
+  }
+
+  /// iPhone PWA: izin + abonelik yalnızca kullanıcı dokunuşuyla istenir.
+  Future<void> _enableWebPush() async {
+    if (!mounted) return;
+    setState(() => _busy = true);
+    WebPushStatus status = WebPushStatus.unsupported;
+    try {
+      status = await PushService.instance.requestWebPushPermission();
+    } catch (_) {
+      // JS köprüsü hata fırlatsa bile panel düğmeleri kilitli kalmaz.
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    final PushResult result = status.ready
+        ? const PushResult(
+            ok: true,
+            statusCode: 200,
+            message: 'Kapalıyken bildirimler açıldı ✅',
+          )
+        : PushResult(
+            ok: false,
+            statusCode: 0,
+            message: status.permissionGranted
+                ? 'İzin verildi · abonelik hazır değil, bir kez daha dene.'
+                : 'Bildirim izni verilmedi · iPhone Ayarlar → Bildirimler → '
+                      'CEYYUS.',
+          );
+    ref.read(pushHealthProvider.notifier).set(result);
+    await _refresh();
+  }
+
+  Future<void> _sendTest() async {
+    if (!mounted) return;
+    setState(() => _testBusy = true);
+    late PushResult result;
+    try {
+      result = await PushService.instance.sendTest(
+        ref.read(appSettingsProvider),
+      );
+    } catch (error) {
+      result = PushResult.fromError(error);
+    } finally {
+      if (mounted) setState(() => _testBusy = false);
+    }
+    if (!mounted) return;
+    ref.read(pushHealthProvider.notifier).set(result);
+    await _refresh();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(result.message),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    final SyncStatusInfo sync = ref.watch(syncStatusProvider);
+    final CloudSyncCoordinator cloud = ref.watch(cloudSyncProvider);
+    final int pending = cloud.pendingMessageCount;
+    final int pendingDeletes = cloud.pendingDeleteCount;
+    final PushDiagnostics? diagnostics = _diagnostics;
+    final PushResult? lastPush = ref.watch(pushHealthProvider);
+    final String identity =
+        diagnostics?.externalId ??
+        PushService.externalIdFor(settings) ??
+        'Oda kodu bekleniyor';
+    final bool identityOk = diagnostics?.identityMatches ?? false;
+    final bool webPushSupported = diagnostics?.webPushSupported ?? false;
+    final bool webStandalone = diagnostics?.isStandalonePwa ?? false;
+    final bool webPushReady = diagnostics?.webPushReady ?? false;
+    final bool webPermission = diagnostics?.permissionGranted ?? false;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        SectionHeader(
+          title: '🩺 Bildirim & Senkron Sağlık Paneli',
+          subtitle: kIsWeb
+              ? 'Web push izni, OneSignal kimliği, Supabase üyeliği ve '
+                    'çevrimdışı kuyruğu tek bakışta.'
+              : 'Yerel izin, OneSignal kimliği, Supabase üyeliği ve çevrimdışı '
+                    'kuyruğu tek bakışta.',
+          trailing: IconButton(
+            key: const Key('health-refresh'),
+            tooltip: 'Yenile',
+            onPressed: _busy ? null : _refresh,
+            icon: _busy
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded, size: 19),
+          ),
+        ),
+        if (!kIsWeb)
+          _HealthRow(
+            key: const Key('health-local-permission'),
+            ok: _localPermission,
+            label: 'Yerel bildirim izni',
+            value: _localPermission ? 'Açık' : 'Kapalı · izin ver',
+            action: _localPermission
+                ? null
+                : TextButton(
+                    key: const Key('health-request-permission'),
+                    onPressed: _busy ? null : _requestPermission,
+                    child: const Text('Aç'),
+                  ),
+          ),
+        _HealthRow(
+          key: const Key('health-onesignal'),
+          ok: identityOk && (diagnostics?.permissionGranted ?? false),
+          label: 'OneSignal aboneliği',
+          value: diagnostics == null
+              ? 'Kontrol ediliyor…'
+              : identityOk
+              ? identity
+              : 'Eşleşmiyor · $identity',
+        ),
+        if (kIsWeb) ...<Widget>[
+          if (!webPushSupported)
+            const _WebPushNotice(
+              key: Key('web-push-unsupported'),
+              icon: Icons.block_rounded,
+              color: AppColors.danger,
+              title: 'Web push desteklenmiyor',
+              body:
+                  'Bu tarayıcı bildirim API’sini desteklemiyor. iPhone 13 / '
+                  'iPhone 17 Pro’da iOS 16.4+ Safari kullan.',
+            )
+          else if (!webStandalone)
+            const _WebPushNotice(
+              key: Key('web-push-install-hint'),
+              icon: Icons.add_to_home_screen_rounded,
+              color: AppColors.warning,
+              title: 'Ana Ekrana Ekle · iPhone',
+              body:
+                  'Kapalıyken bildirim almak için Safari → Paylaş → Ana '
+                  'Ekrana Ekle yapıp uygulamayı ana ekrandan açın.',
+            )
+          else ...<Widget>[
+            _HealthRow(
+              key: const Key('web-push-status'),
+              ok: webPushReady,
+              label: 'iPhone kilit ekranı bildirimi',
+              value: webPushReady
+                  ? 'Açık · uygulama kapalıyken de gelir'
+                  : webPermission
+                  ? 'İzin var · abonelik bekliyor'
+                  : 'Kapalı · etkinleştir',
+            ),
+            if (webPushReady)
+              Padding(
+                key: const Key('web-push-ready-badge'),
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withValues(alpha: 0.10),
+                    borderRadius: AppRadii.smAll,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        size: 15,
+                        color: AppColors.success,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Kilit ekranı bildirimleri açık · ana ekrandan '
+                          'açılış algılandı',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.success,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: FilledButton.icon(
+                  key: const Key('web-push-enable'),
+                  onPressed: _busy ? null : _enableWebPush,
+                  icon: const Icon(
+                    Icons.notifications_active_rounded,
+                    size: 17,
+                  ),
+                  label: const Text('Kapalıyken Bildirimleri Etkinleştir'),
+                ),
+              ),
+          ],
+        ],
+        _HealthRow(
+          key: const Key('health-membership'),
+          ok: sync.isConnected,
+          label: 'Supabase Auth + oda üyeliği',
+          value: sync.isConnected
+              // Oda kodu tam gösterilmez (ekran görüntüsü/paylaşım sızıntısı).
+              ? 'Üye · ${settings.maskedRoomCode}'
+              : sync.message,
+        ),
+        _HealthRow(
+          key: const Key('health-outbox'),
+          ok: pending == 0 && pendingDeletes == 0,
+          label: 'Bekleyen çevrimdışı mesaj / silme',
+          value: pending == 0 && pendingDeletes == 0
+              ? 'Yok · her şey senkron'
+              : '$pending mesaj · $pendingDeletes silme',
+        ),
+        if (lastPush != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.xs),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            decoration: BoxDecoration(
+              color: (lastPush.ok ? AppColors.success : AppColors.danger)
+                  .withValues(alpha: 0.08),
+              borderRadius: AppRadii.smAll,
+            ),
+            child: Text(
+              lastPush.ok
+                  ? '${lastPush.message}'
+                        '${lastPush.onesignalStatus == null ? '' : ' · OneSignal ${lastPush.onesignalStatus}'}'
+                  : lastPush.message,
+              style: AppTypography.caption.copyWith(
+                color: lastPush.ok ? AppColors.success : AppColors.danger,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.sm),
+        FilledButton.icon(
+          key: const Key('health-send-test'),
+          onPressed: _testBusy ? null : _sendTest,
+          icon: const Icon(Icons.send_rounded, size: 17),
+          label: Text(
+            _testBusy
+                ? 'Test gönderiliyor…'
+                : '📨 Karşı Tarafa Test Bildirimi Gönder',
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          kIsWeb
+              ? 'Bu test bildirimi partnerin cihazına (OneSignal) gider. '
+                    'iPhone’da kendi kilit ekranına bildirim için: Safari → '
+                    'Ana Ekrana Ekle + “Kapalıyken Bildirimleri Etkinleştir”.'
+              : 'Test yanıtı Edge Function HTTP kodunu ve OneSignal teslim '
+                    'durumunu gösterir. 401/403’te oturum bir kez otomatik '
+                    'yenilenir.',
+          key: const Key('health-test-note'),
+          style: AppTypography.caption.copyWith(
+            color: AppColors.textTertiary,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HealthRow extends StatelessWidget {
+  const _HealthRow({
+    required this.ok,
+    required this.label,
+    required this.value,
+    this.action,
+    super.key,
+  });
+
+  final bool ok;
+  final String label;
+  final String value;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = ok ? AppColors.success : AppColors.danger;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            ok ? Icons.check_circle_rounded : Icons.error_rounded,
+            size: 17,
+            color: color,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  label,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: color,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ?action,
+        ],
+      ),
+    );
+  }
+}
+
+/// Web PWA kurulum/destek durumunu açıklayan bilgi kartı.
+class _WebPushNotice extends StatelessWidget {
+  const _WebPushNotice({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.body,
+    super.key,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: AppSpacing.xs, bottom: AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: AppRadii.smAll,
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: AppTypography.caption.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  body,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ToggleTile extends StatelessWidget {
+  const _ToggleTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+    super.key,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile.adaptive(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      secondary: Icon(icon, size: 20, color: AppColors.textSecondary),
+      title: Text(
+        title,
+        style: AppTypography.subtitle.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w700,
+          fontSize: 13,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: AppTypography.caption.copyWith(color: AppColors.textTertiary),
+      ),
+      value: value,
+      onChanged: onChanged,
+    );
+  }
+}
+
+class _PrivacySettings extends ConsumerWidget {
+  const _PrivacySettings();
+
+  Future<void> _pickGrace(BuildContext context, WidgetRef ref) async {
+    const List<int> options = <int>[0, 15, 30, 60, 120, 300];
+    final int? picked = await showDialog<int>(
+      context: context,
+      builder: (BuildContext dialogContext) => SimpleDialog(
+        title: const Text('Arka plan toleransı'),
+        children: <Widget>[
+          for (final int seconds in options)
+            SimpleDialogOption(
+              key: Key('pin-grace-$seconds'),
+              onPressed: () => Navigator.of(dialogContext).pop(seconds),
+              child: Text(seconds == 0 ? 'Hemen kilitle' : '$seconds saniye'),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    ref.read(appSettingsProvider.notifier).setLockGraceSeconds(picked);
+  }
+
+  Future<void> _changePin(BuildContext context, WidgetRef ref) async {
+    final TextEditingController controller = TextEditingController();
+    String? error;
+    final String? pin = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter setState) {
+          void save() {
+            final String value = AppSettings.normalizePin(controller.text);
+            if (value.length != 4) {
+              setState(() => error = '4 haneli bir PIN gir.');
+              return;
+            }
+            Navigator.of(dialogContext).pop(value);
+          }
+
+          return AlertDialog(
+            title: const Text('Özel alan PIN’i'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                TextField(
+                  key: const Key('pin-input'),
+                  controller: controller,
+                  autofocus: true,
+                  obscureText: true,
+                  keyboardType: TextInputType.number,
+                  maxLength: 4,
+                  inputFormatters: <TextInputFormatter>[
+                    FilteringTextInputFormatter.digitsOnly,
+                  ],
+                  decoration: const InputDecoration(
+                    hintText: '4 haneli PIN',
+                    counterText: '',
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Varsayılan PIN ilk girişte kullanılır; güvenliğin için '
+                  'buradan değiştir 💍',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+                if (error != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    error!,
+                    key: const Key('pin-error-text'),
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.danger,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Vazgeç'),
+              ),
+              TextButton(
+                key: const Key('pin-save'),
+                onPressed: save,
+                child: const Text('Kaydet'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    controller.dispose();
+    if (pin == null || !context.mounted) return;
+    final bool saved = await ref
+        .read(appSettingsProvider.notifier)
+        .setPinCodeAsync(pin);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            saved
+                ? 'PIN güncellendi 🔒 · PBKDF2 ile korunuyor'
+                : 'PIN kaydedilemedi · tekrar dene',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SectionHeader(
+          title: 'Gizlilik',
+          subtitle: 'Sohbet ve anılar yalnızca ikimize açık.',
+        ),
+        SwitchListTile.adaptive(
+          key: const Key('pin-toggle'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          secondary: const Icon(
+            Icons.lock_rounded,
+            size: 20,
+            color: AppColors.textSecondary,
+          ),
+          title: Text(
+            'Özel Alan Kilidi (4 haneli PIN)',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            'Açılışta ve uygulamaya dönüşte sorulur',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          value: settings.pinLockEnabled,
+          onChanged: (bool value) {
+            ref.read(appSettingsProvider.notifier).setPinLockEnabled(value);
+            if (!value) ref.read(pinLockProvider.notifier).unlock();
+          },
+        ),
+        ListTile(
+          key: const Key('pin-change'),
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(
+            Icons.password_rounded,
+            size: 20,
+            color: AppColors.textSecondary,
+          ),
+          title: Text(
+            'PIN’i değiştir',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            settings.hasPin
+                ? 'Şu an özel PIN · •••• · yalnızca ${settings.needsPinMigration ? 'SHA-256 (girişte PBKDF2’ye yükseltilir)' : 'PBKDF2'} özeti saklanır'
+                : 'Varsayılan PIN aktif · güvenlik için değiştir',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.textTertiary,
+          ),
+          onTap: () => _changePin(context, ref),
+        ),
+        SwitchListTile.adaptive(
+          key: const Key('biometric-toggle'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          secondary: const Icon(
+            Icons.fingerprint_rounded,
+            size: 20,
+            color: AppColors.textSecondary,
+          ),
+          title: Text(
+            'Face ID / Parmak İzi ile Aç',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            settings.biometricEnabled
+                ? 'Biyometrik kilit açık · PIN yedek olarak kalır'
+                : 'PIN yerine biyometrik doğrulama kullan',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          value: settings.biometricEnabled,
+          onChanged: (bool value) async {
+            ref.read(appSettingsProvider.notifier).setBiometricEnabled(value);
+            if (!value) return;
+            final bool available = await ref
+                .read(biometricServiceProvider)
+                .isAvailable();
+            if (!available && context.mounted) {
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Bu cihazda biyometri bulunamadı · PIN kullanılmaya '
+                      'devam eder.',
+                    ),
+                  ),
+                );
+            }
+          },
+        ),
+        ListTile(
+          key: const Key('pin-grace'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          leading: const Icon(
+            Icons.timelapse_rounded,
+            size: 20,
+            color: AppColors.textSecondary,
+          ),
+          title: Text(
+            'Arka plan toleransı',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            'Kamera/galeri dönüşünde ${settings.lockGraceSeconds} sn '
+            'boyunca kilit sorulmaz',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.textTertiary,
+          ),
+          onTap: () => _pickGrace(context, ref),
+        ),
+        ListTile(
+          key: const Key('pin-lock-now'),
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(
+            Icons.lock_clock_rounded,
+            size: 20,
+            color: CouplePalette.ceyda,
+          ),
+          title: Text(
+            'Şimdi kilitle',
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            'Özel alanı hemen gizle',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+            ),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.textTertiary,
+          ),
+          onTap: () {
+            ref.read(appSettingsProvider.notifier).setPinLockEnabled(true);
+            ref.read(pinLockProvider.notifier).lock();
+            // Kök kapı PIN ekranını anında öne alır; bu sayfayı ayrıca
+            // kapatmak geri yığını bozar.
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _CloudSyncSettings extends ConsumerStatefulWidget {
+  const _CloudSyncSettings();
+
+  @override
+  ConsumerState<_CloudSyncSettings> createState() => _CloudSyncSettingsState();
+}
+
+class _CloudSyncSettingsState extends ConsumerState<_CloudSyncSettings> {
+  late final TextEditingController _url;
+  late final TextEditingController _key;
+  late final TextEditingController _room;
+  late String _role;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final AppSettings settings = ref.read(appSettingsProvider);
+    _url = TextEditingController(text: settings.supabaseUrl);
+    _key = TextEditingController(text: settings.supabaseAnonKey);
+    _room = TextEditingController(
+      text: settings.roomCode.isEmpty
+          ? AppSettings.defaultRoomCode
+          : settings.roomCode,
+    );
+    _role = settings.deviceRole;
+  }
+
+  @override
+  void dispose() {
+    _url.dispose();
+    _key.dispose();
+    _room.dispose();
+    super.dispose();
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+      );
+  }
+
+  Future<void> _connect() async {
+    if (_url.text.trim().isEmpty || _key.text.trim().isEmpty) {
+      _snack('Supabase URL ve anon key gerekli ☁️');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      ref
+          .read(appSettingsProvider.notifier)
+          .saveCloudConfig(
+            url: _url.text,
+            anonKey: _key.text,
+            roomCode: _room.text,
+            deviceRole: _role,
+          );
+      await ref
+          .read(cloudSyncProvider)
+          .configure(ref.read(appSettingsProvider));
+    } catch (error) {
+      if (mounted) {
+        _snack('Bağlantı kurulamadı · $error');
+        setState(() => _busy = false);
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final SyncStatusInfo status = ref.read(syncStatusProvider);
+    _snack(status.message);
+    // Yeni cihazda rol başka cihazda kalmışsa doğrudan kurtarma diyaloğu aç:
+    // kullanıcı menü aramadan rolünü geri alabilsin.
+    if (status.status == SyncStatus.error &&
+        status.message.contains('başka bir cihazda')) {
+      await _openReclaimDialog(auto: true);
+    }
+  }
+
+  /// Odanın normalize edilmiş kodu: form alanı boşsa kayıtlı ayar kullanılır.
+  String get _roomCode {
+    final String typed = _room.text.trim();
+    return typed.isEmpty ? ref.read(appSettingsProvider).roomCode : typed;
+  }
+
+  /// Tek tıkla yeni kurtarma kodu üretir ve tek seferlik diyalogda gösterir.
+  Future<void> _issueRecovery() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    late RecoverySecretResult result;
+    try {
+      result = await ref.read(cloudSyncProvider).issueRecoverySecret(_roomCode);
+    } catch (error) {
+      result = RecoverySecretResult(message: 'Kod üretilemedi · $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    final String? secret = result.secret;
+    if (!result.isOk || secret == null) {
+      _snack(
+        result.message.trim().isEmpty
+            ? 'Kurtarma kodu üretilemedi'
+            : result.message,
+      );
+      return;
+    }
+    await _showRecoveryCode(secret);
+  }
+
+  /// Düz metin kodu **yalnızca bir kez** gösterir; kopyalama kolaylığı sunar.
+  Future<void> _showRecoveryCode(String secret) async {
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        key: const Key('recovery-code-dialog'),
+        title: const Text('🔑 Oda Kurtarma Kodu'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Bu kod bir kez gösterilir, güvenli bir yere kaydet. Yeni '
+                'telefonda “Rolümü Geri Al” için bu kodu kullanacaksın.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              SelectableText(
+                secret,
+                key: const Key('recovery-code-value'),
+                style: AppTypography.subtitle.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          TextButton.icon(
+            key: const Key('recovery-code-copy'),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: secret));
+              if (!dialogContext.mounted) return;
+              Navigator.of(dialogContext).pop();
+              _snack('Kurtarma kodu panoya kopyalandı 📋');
+            },
+            icon: const Icon(Icons.copy_rounded, size: 16),
+            label: const Text('Kopyala'),
+          ),
+          FilledButton(
+            key: const Key('recovery-code-done'),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Kaydettim'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Kurtarma koduyla rolü bu cihaza devralır.
+  ///
+  /// [auto] `true` ise `role taken` hatasından sonra kendiliğinden açılır ve
+  /// kullanıcıya neden gösterildiği anlatılır.
+  Future<void> _openReclaimDialog({bool auto = false}) async {
+    final TextEditingController secret = TextEditingController();
+    final bool? submitted = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        bool busy = false;
+        String? error;
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setDialogState) {
+            Future<void> submit() async {
+              final String value = secret.text.trim();
+              if (value.isEmpty) {
+                setDialogState(() => error = 'Kurtarma kodu boş olamaz.');
+                return;
+              }
+              setDialogState(() {
+                busy = true;
+                error = null;
+              });
+              final RoleReclaimResult result = await ref
+                  .read(cloudSyncProvider)
+                  .reclaimRole(
+                    roomCode: _roomCode,
+                    role: _role,
+                    recoverySecret: value,
+                  );
+              if (!dialogContext.mounted) return;
+              if (result.isOk) {
+                Navigator.of(dialogContext).pop(true);
+                return;
+              }
+              setDialogState(() {
+                busy = false;
+                error = result.displayMessage;
+              });
+            }
+
+            return AlertDialog(
+              key: const Key('reclaim-role-dialog'),
+              title: const Text('🔄 Rolümü Geri Al'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      auto
+                          ? 'Bu rol başka bir cihazda görünüyor. Kaydettiğin '
+                                'kurtarma koduyla rolü bu cihaza alabilirsin.'
+                          : 'Yeni cihazda rolü devralmak için oda kurtarma '
+                                'kodunu gir.',
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextField(
+                      key: const Key('reclaim-secret-input'),
+                      controller: secret,
+                      autofocus: true,
+                      obscureText: true,
+                      enabled: !busy,
+                      decoration: const InputDecoration(
+                        labelText: 'Kurtarma kodu',
+                      ),
+                      onSubmitted: (_) => submit(),
+                    ),
+                    if (error != null) ...<Widget>[
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        error!,
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.danger,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: <Widget>[
+                TextButton(
+                  key: const Key('reclaim-cancel'),
+                  onPressed: busy
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Vazgeç'),
+                ),
+                FilledButton(
+                  key: const Key('reclaim-submit'),
+                  onPressed: busy ? null : submit,
+                  child: Text(busy ? 'Deneniyor…' : 'Rolümü Geri Al'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    secret.dispose();
+    if (submitted == true && mounted) {
+      _snack('Rol bu cihaza alındı ✅ · bağlantı yeniden kuruluyor');
+    }
+  }
+
+  Future<void> _copySql() async {
+    await Clipboard.setData(ClipboardData(text: SupabaseSyncService.schemaSql));
+    _snack('SQL panoya kopyalandı · Supabase → SQL Editor’a yapıştır');
+  }
+
+  Future<void> _disconnect() async {
+    await ref.read(cloudSyncProvider).disconnect();
+    ref.read(appSettingsProvider.notifier).clearCloudConfig();
+    if (!mounted) return;
+    setState(() {
+      _url.clear();
+      _key.clear();
+    });
+    _snack('Bulut kapatıldı · yerel mod sürüyor');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    final SyncStatusInfo status = ref.watch(syncStatusProvider);
+    final Color statusColor = switch (status.status) {
+      SyncStatus.connected => AppColors.success,
+      SyncStatus.connecting => AppColors.streak,
+      SyncStatus.error => AppColors.danger,
+      SyncStatus.disabled => AppColors.textTertiary,
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SectionHeader(
+          title: '☁️ İki Telefon Canlı Senkronizasyon (Supabase)',
+          subtitle:
+              'Supabase ile dünyanın her yerinden aynı oda. Boş bırakırsan '
+              'uygulama tamamen yerel çalışır.',
+        ),
+        Container(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: statusColor.withValues(alpha: 0.08),
+            borderRadius: AppRadii.mdAll,
+            border: Border.all(color: statusColor.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  status.message,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (status.isBusy)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _CloudField(
+          key: const Key('cloud-url'),
+          controller: _url,
+          label: 'Project URL',
+          hint: 'https://xxxx.supabase.co',
+        ),
+        _CloudField(
+          key: const Key('cloud-key'),
+          controller: _key,
+          label: 'Anon public key',
+          hint: 'eyJhbGciOi…',
+          obscure: true,
+        ),
+        _CloudField(
+          key: const Key('cloud-room'),
+          controller: _room,
+          label: 'Oda Kodu',
+          hint: AppSettings.defaultRoomCode,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Bu Telefon: ${CouplePalette.nameOf(_role)} '
+          '${CouplePalette.emojiOf(_role)}',
+          style: AppTypography.caption.copyWith(
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Row(
+          children: <Widget>[
+            for (final String id in CouplePartner.ids) ...<Widget>[
+              Expanded(
+                child: _RoleChip(
+                  key: Key('cloud-role-$id'),
+                  partnerId: id,
+                  selected: _role == id,
+                  onTap: () => setState(() => _role = id),
+                ),
+              ),
+              if (id != CouplePartner.ids.last)
+                const SizedBox(width: AppSpacing.sm),
+            ],
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: <Widget>[
+            FilledButton.icon(
+              key: const Key('cloud-connect'),
+              onPressed: _busy ? null : _connect,
+              icon: const Icon(Icons.cloud_done_rounded, size: 18),
+              label: Text(_busy ? 'Bağlanıyor…' : 'Bağlan ve Senkronize Et'),
+            ),
+            OutlinedButton.icon(
+              key: const Key('cloud-sql'),
+              onPressed: _copySql,
+              icon: const Icon(Icons.copy_rounded, size: 16),
+              label: const Text('SQL şemasını kopyala'),
+            ),
+            if (settings.isCloudConfigured)
+              TextButton(
+                key: const Key('cloud-disconnect'),
+                onPressed: _disconnect,
+                child: const Text('Bağlantıyı kes'),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: AppRadii.mdAll,
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                '🔑 Oda Kurtarma Kodu',
+                style: AppTypography.subtitle.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Telefon değişince veya uygulama silinip yeniden kurulunca '
+                'rolünü bu kodla geri alırsın. Kod sunucuda yalnızca bcrypt '
+                'özeti olarak saklanır; düz metin bir kez gösterilir.',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.textTertiary,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: <Widget>[
+                  FilledButton.tonalIcon(
+                    key: const Key('cloud-issue-recovery'),
+                    onPressed: _busy ? null : _issueRecovery,
+                    icon: const Icon(Icons.vpn_key_rounded, size: 17),
+                    label: const Text('Kurtarma Kodu Oluştur'),
+                  ),
+                  OutlinedButton.icon(
+                    key: const Key('cloud-reclaim-role'),
+                    onPressed: _busy
+                        ? null
+                        : () => _openReclaimDialog(auto: false),
+                    icon: const Icon(Icons.restore_rounded, size: 17),
+                    label: const Text('Rolümü Geri Al'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Kurulum: Supabase → SQL Editor → sırasıyla v6 güvenlik, v6.1 '
+          'sohbet/push, v6.2 kurtarma ve v6.3 polish migration’larını '
+          'çalıştır. Ardından buraya URL + anon key + oda kodunu gir; iki '
+          'telefon aynı odaya bağlanınca mesajlar anında akar.',
+          style: AppTypography.caption.copyWith(
+            color: AppColors.textTertiary,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CloudField extends StatelessWidget {
+  const _CloudField({
+    required this.controller,
+    required this.label,
+    required this.hint,
+    this.obscure = false,
+    super.key,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final bool obscure;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: TextField(
+        controller: controller,
+        obscureText: obscure,
+        autocorrect: false,
+        enableSuggestions: false,
+        style: AppTypography.bodySmall.copyWith(color: AppColors.textPrimary),
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          isDense: true,
+          hintStyle: AppTypography.caption.copyWith(
+            color: AppColors.textTertiary,
+          ),
+          labelStyle: AppTypography.caption.copyWith(
+            color: AppColors.textSecondary,
+          ),
+          border: const OutlineInputBorder(
+            borderRadius: AppRadii.smAll,
+            borderSide: BorderSide(color: AppColors.border),
+          ),
+          enabledBorder: const OutlineInputBorder(
+            borderRadius: AppRadii.smAll,
+            borderSide: BorderSide(color: AppColors.border),
+          ),
+          focusedBorder: const OutlineInputBorder(
+            borderRadius: AppRadii.smAll,
+            borderSide: BorderSide(color: AppColors.primary),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RoleChip extends StatelessWidget {
+  const _RoleChip({
+    required this.partnerId,
+    required this.selected,
+    required this.onTap,
+    super.key,
+  });
+
+  final String partnerId;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color accent = CouplePalette.colorOf(partnerId);
+    return Material(
+      color: selected ? accent.withValues(alpha: 0.10) : AppColors.surface,
+      borderRadius: AppRadii.mdAll,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadii.mdAll,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.xs + 2,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: AppRadii.mdAll,
+            border: Border.all(
+              color: selected ? accent : AppColors.border,
+              width: selected ? 1.4 : 1,
+            ),
+          ),
+          child: Row(
+            children: <Widget>[
+              PartnerAvatar(partnerId: partnerId, size: 26),
+              const SizedBox(width: AppSpacing.xs + 2),
+              Expanded(
+                child: Text(
+                  '${CouplePalette.nameOf(partnerId)} '
+                  '${CouplePalette.emojiOf(partnerId)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: selected ? accent : AppColors.textSecondary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+              if (selected)
+                Icon(Icons.check_circle_rounded, size: 15, color: accent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// v6: tüm yerel veriyi JSON olarak dışa aktarma / doğrulamalı geri yükleme.
+/// Yeniden kullanılabilir ayar bölümleri.
+///
+/// Sayfalar bu ince sarmalayıcılar üzerinden ilgili bölümü gömer; böylece
+/// aynı ayar hem tam ekran sayfada hem de alt sayfalarda tek kaynaktan gelir.
+class DeviceIdentitySection extends StatelessWidget {
+  const DeviceIdentitySection({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _DeviceIdentitySettings();
+}
+
+class ProfilePhotoSection extends StatelessWidget {
+  const ProfilePhotoSection({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _ProfilePhotoSettings();
+}
+
+class NotificationSection extends StatelessWidget {
+  const NotificationSection({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _NotificationSettings();
+}
+
+class PrivacySection extends StatelessWidget {
+  const PrivacySection({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _PrivacySettings();
+}
+
+class CloudSyncSection extends StatelessWidget {
+  const CloudSyncSection({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _CloudSyncSettings();
+}
+
+class BackupSection extends StatelessWidget {
+  const BackupSection({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _BackupSettings();
+}
+
+class _BackupSettings extends ConsumerWidget {
+  const _BackupSettings();
+
+  void _snack(BuildContext context, String message) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+      );
+  }
+
+  Future<void> _export(BuildContext context, WidgetRef ref) async {
+    final String json = BackupService.export(ref.read(gameProvider));
+    await Clipboard.setData(ClipboardData(text: json));
+    try {
+      await Share.share(
+        json,
+        subject: 'CEYYUS yedeği',
+        sharePositionOrigin: null,
+      );
+    } catch (_) {
+      // Paylaşım sayfası yoksa pano kopyası yeterlidir (Web/masaüstü).
+    }
+    if (!context.mounted) return;
+    _snack(context, '💾 Yedek panoya kopyalandı · ${json.length} karakter');
+  }
+
+  Future<void> _import(BuildContext context, WidgetRef ref) async {
+    final TextEditingController controller = TextEditingController();
+    final String? raw = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('📥 Yedeği geri yükle'),
+        content: TextField(
+          key: const Key('backup-import-input'),
+          controller: controller,
+          maxLines: 8,
+          minLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'Yedek JSON’unu buraya yapıştır',
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Vazgeç'),
+          ),
+          TextButton(
+            key: const Key('backup-import-apply'),
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('Doğrula'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (raw == null || raw.trim().isEmpty || !context.mounted) return;
+
+    BackupRestore restore;
+    try {
+      restore = BackupService.parse(raw);
+    } on BackupException catch (error) {
+      _snack(context, '⚠️ ${error.message}');
+      return;
+    }
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('Yedek doğrulandı ✅'),
+        content: Text(
+          'Tarih: ${restore.exportedAt?.toLocal() ?? 'bilinmiyor'}\n'
+          'Sürüm: v${restore.schemaVersion}\n'
+          '${restore.state.partners.length} partner · '
+          '${restore.state.couple.messages.length} mesaj\n\n'
+          'Mevcut veri bu yedekle değiştirilecek.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            key: const Key('backup-restore-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Geri yükle'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await ref.read(gameProvider.notifier).importState(restore.state);
+    if (!context.mounted) return;
+    _snack(context, '✅ Yedek geri yüklendi');
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SectionHeader(
+          title: 'Yedekleme',
+          subtitle:
+              'Tüm XP, sohbet ve plan tek JSON dosyasında. Doğrulamalı geri '
+              'yükleme yarım veri bırakmaz.',
+        ),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: <Widget>[
+            OutlinedButton.icon(
+              key: const Key('backup-export'),
+              onPressed: () => _export(context, ref),
+              icon: const Icon(Icons.ios_share_rounded, size: 18),
+              label: const Text('💾 Yedeği paylaş'),
+            ),
+            OutlinedButton.icon(
+              key: const Key('backup-import'),
+              onPressed: () => _import(context, ref),
+              icon: const Icon(Icons.download_rounded, size: 18),
+              label: const Text('📥 Yedekten yükle'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}

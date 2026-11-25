@@ -125,6 +125,8 @@ class _AddCapsuleSheetState extends ConsumerState<_AddCapsuleSheet> {
                     ),
                   ),
                   IconButton(
+                    key: const Key('capsule-sheet-close'),
+                    tooltip: 'Kapat',
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(
                       Icons.close_rounded,

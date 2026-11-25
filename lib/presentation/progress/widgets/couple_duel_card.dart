@@ -30,19 +30,46 @@ class CoupleDuelCard extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              const SizedBox(height: AppSpacing.sm),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: AppRadii.pillAll,
+                  ),
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.xxl,
+                  AppSpacing.sm,
                   AppSpacing.lg,
-                  AppSpacing.xxl,
                   AppSpacing.sm,
                 ),
-                child: Text(
-                  'Bu haftanın bahsi',
-                  style: AppTypography.title.copyWith(
-                    color: AppColors.textPrimary,
-                    fontSize: 18,
-                  ),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        'Bu haftanın bahsi',
+                        style: AppTypography.title.copyWith(
+                          color: AppColors.textPrimary,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      key: const Key('stake-sheet-close'),
+                      tooltip: 'Kapat',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        size: 20,
+                        color: AppColors.textTertiary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               for (final DuelStake stake in DuelStake.values)

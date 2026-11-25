@@ -196,4 +196,30 @@ void main() {
     await tester.pumpAndSettle();
     expect(stack().index, 0);
   });
+
+  testWidgets('sistem geri tuşu Bugün dışındaki sekmede Bugün\'e döner', (
+    WidgetTester tester,
+  ) async {
+    await _pumpHost(tester, const AppShell(), state: _buildState());
+
+    IndexedStack stack() =>
+        tester.widget<IndexedStack>(find.byType(IndexedStack));
+
+    await tester.tap(find.byKey(const Key('nav-development')));
+    await tester.pumpAndSettle();
+    expect(stack().index, 1);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(stack().index, 0);
+    expect(find.byType(DashboardScreen), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('nav-progress')));
+    await tester.pumpAndSettle();
+    expect(stack().index, 3);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(stack().index, 0);
+  });
 }

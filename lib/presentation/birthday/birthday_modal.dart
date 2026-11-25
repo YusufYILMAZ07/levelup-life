@@ -13,18 +13,22 @@ import '../widgets/section_header.dart';
 /// Bugün sekmesindeki banner en yakın özel günü otomatik vurgular; bu modal
 /// dört tarihi canlı geri sayımla listeler ve Ceyda'nın mektubunu gösterir.
 Future<void> showBirthdayExperience(BuildContext context) {
-  return showDialog<void>(
-    context: context,
-    barrierColor: AppColors.scrim,
-    builder: (BuildContext dialogContext) => const BirthdayModal(),
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => const BirthdayModal(fullScreen: true),
+    ),
   );
 }
 
 /// Ceyda'nın doğum günü kutlaması: mektup, yılın özeti ve aşk notu üretici.
 class BirthdayModal extends ConsumerWidget {
-  const BirthdayModal({this.now, super.key});
+  const BirthdayModal({this.now, this.fullScreen = false, super.key});
 
   final DateTime? now;
+
+  /// `true` olduğunda diyalog yerine tam ekran sayfa olarak çizilir.
+  final bool fullScreen;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -37,131 +41,174 @@ class BirthdayModal extends ConsumerWidget {
         .where((BucketGoal goal) => goal.isDone)
         .length;
 
+    final Widget card = DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadii.lgAll,
+        boxShadow: AppShadows.floating,
+      ),
+      child: ClipRRect(
+        borderRadius: AppRadii.lgAll,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              _BirthdayHero(ceyda: ceyda, now: at),
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.xxl),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _SpecialDateList(now: at),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Sevgili Ceyda,',
+                      style: AppTypography.title.copyWith(
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    _BirthdayLetter(message: couple.birthdayMessage),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'YILIN ÖZETİ',
+                      style: AppTypography.label.copyWith(
+                        color: AppColors.textTertiary,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: _BirthdayStat(
+                            emoji: '⚡',
+                            value: FormatX.number(ceyda.totalXp),
+                            label: 'toplam XP',
+                          ),
+                        ),
+                        Expanded(
+                          child: _BirthdayStat(
+                            emoji: '🔥',
+                            value: '${ceyda.profile?.streak.currentDays ?? 0}',
+                            label: 'gün seri',
+                          ),
+                        ),
+                        Expanded(
+                          child: _BirthdayStat(
+                            emoji: '💬',
+                            value: '${couple.messages.length}',
+                            label: 'mesaj',
+                          ),
+                        ),
+                        Expanded(
+                          child: _BirthdayStat(
+                            emoji: '📸',
+                            value: '${couple.photoMessages.length}',
+                            label: 'anı',
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: _BirthdayStat(
+                            emoji: '🎯',
+                            value: '${ceyda.completedCount}',
+                            label: 'görev',
+                          ),
+                        ),
+                        Expanded(
+                          child: _BirthdayStat(
+                            emoji: '✨',
+                            value: '$goalCount',
+                            label: 'ortak hedef',
+                          ),
+                        ),
+                        Expanded(
+                          child: _BirthdayStat(
+                            emoji: '💞',
+                            value: '${couple.synergyCountOn(at)}',
+                            label: 'sinerji',
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    const _NoteSurprise(),
+                    const SizedBox(height: AppSpacing.lg),
+                    _BirthdayBucketList(goals: couple.bucketGoals),
+                    const SizedBox(height: AppSpacing.lg),
+                    FilledButton(
+                      key: const Key('birthday-close'),
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: CouplePalette.ceyda,
+                        minimumSize: const Size.fromHeight(50),
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: AppRadii.mdAll,
+                        ),
+                      ),
+                      child: const Text('Seni seviyorum 💖'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (fullScreen) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            key: const Key('birthday-back'),
+            tooltip: 'Geri',
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 19),
+          ),
+          title: Text(
+            'Doğum Günü Sürprizi',
+            style: AppTypography.subtitle.copyWith(fontWeight: FontWeight.w800),
+          ),
+          actions: <Widget>[
+            IconButton(
+              key: const Key('birthday-top-close'),
+              tooltip: 'Kapat',
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.close_rounded, size: 20),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          top: false,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: card,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(AppSpacing.lg),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: AppRadii.lgAll,
-            boxShadow: AppShadows.floating,
-          ),
-          child: ClipRRect(
-            borderRadius: AppRadii.lgAll,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  _BirthdayHero(ceyda: ceyda, now: at),
-                  Padding(
-                    padding: const EdgeInsets.all(AppSpacing.xxl),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        _SpecialDateList(now: at),
-                        const SizedBox(height: AppSpacing.lg),
-                        Text(
-                          'Sevgili Ceyda,',
-                          style: AppTypography.title.copyWith(
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        _BirthdayLetter(message: couple.birthdayMessage),
-                        const SizedBox(height: AppSpacing.lg),
-                        Text(
-                          'YILIN ÖZETİ',
-                          style: AppTypography.label.copyWith(
-                            color: AppColors.textTertiary,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: _BirthdayStat(
-                                emoji: '⚡',
-                                value: FormatX.number(ceyda.totalXp),
-                                label: 'toplam XP',
-                              ),
-                            ),
-                            Expanded(
-                              child: _BirthdayStat(
-                                emoji: '🔥',
-                                value:
-                                    '${ceyda.profile?.streak.currentDays ?? 0}',
-                                label: 'gün seri',
-                              ),
-                            ),
-                            Expanded(
-                              child: _BirthdayStat(
-                                emoji: '💬',
-                                value: '${couple.messages.length}',
-                                label: 'mesaj',
-                              ),
-                            ),
-                            Expanded(
-                              child: _BirthdayStat(
-                                emoji: '📸',
-                                value: '${couple.photoMessages.length}',
-                                label: 'anı',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: _BirthdayStat(
-                                emoji: '🎯',
-                                value: '${ceyda.completedCount}',
-                                label: 'görev',
-                              ),
-                            ),
-                            Expanded(
-                              child: _BirthdayStat(
-                                emoji: '✨',
-                                value: '$goalCount',
-                                label: 'ortak hedef',
-                              ),
-                            ),
-                            Expanded(
-                              child: _BirthdayStat(
-                                emoji: '💞',
-                                value: '${couple.synergyCountOn(at)}',
-                                label: 'sinerji',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: AppSpacing.lg),
-                        const _NoteSurprise(),
-                        const SizedBox(height: AppSpacing.lg),
-                        _BirthdayBucketList(goals: couple.bucketGoals),
-                        const SizedBox(height: AppSpacing.lg),
-                        FilledButton(
-                          key: const Key('birthday-close'),
-                          onPressed: () => Navigator.of(context).pop(),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: CouplePalette.ceyda,
-                            minimumSize: const Size.fromHeight(50),
-                            shape: const RoundedRectangleBorder(
-                              borderRadius: AppRadii.mdAll,
-                            ),
-                          ),
-                          child: const Text('Seni seviyorum 💖'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+        child: card,
       ),
     );
   }

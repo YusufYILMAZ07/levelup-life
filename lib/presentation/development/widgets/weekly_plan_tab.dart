@@ -630,6 +630,16 @@ class _BlockActionsSheet extends StatelessWidget {
                       ],
                     ),
                   ),
+                  IconButton(
+                    key: const Key('schedule-actions-close'),
+                    tooltip: 'Kapat',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      size: 20,
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
                 ],
               ),
               if (block.locationOrNote.isNotEmpty) ...<Widget>[

@@ -54,6 +54,12 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(find.byKey(const Key('birthday-surprise')), findsOneWidget);
+    expect(find.byKey(const Key('topbar-settings')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('topbar-settings')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-screen')), findsOneWidget);
   });
 
   testWidgets('cihaz kilidi profil değiştiriciyi kimlik hapına çevirir', (
@@ -90,6 +96,21 @@ void main() {
     expect(find.byKey(const Key('partner-yusuf')), findsNothing);
     expect(find.byKey(const Key('partner-ceyda')), findsNothing);
     expect(find.textContaining('Yusuf ile Bağlı'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('locked-identity-pill')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Profil & Cihaz Kimliği'), findsOneWidget);
+    expect(find.byKey(const Key('identity-sheet-close')), findsOneWidget);
+    expect(find.byKey(const Key('identity-sheet-yusuf')), findsOneWidget);
+    expect(find.byKey(const Key('identity-sheet-ceyda')), findsOneWidget);
+    expect(find.byKey(const Key('identity-sheet-lock')), findsOneWidget);
+    expect(find.byKey(const Key('identity-sheet-settings')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('identity-sheet-close')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('identity-sheet-close')), findsNothing);
+    expect(find.byKey(const Key('locked-identity-pill')), findsOneWidget);
   });
 
   testWidgets('gelişim sekmesinde rubrik puanı XP kazandırır', (
@@ -171,6 +192,36 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('doğum günü deneyimi tam ekran sayfa olarak açılır', (
+    WidgetTester tester,
+  ) async {
+    await pump(
+      tester,
+      Scaffold(
+        body: Builder(
+          builder: (BuildContext context) => Center(
+            child: ElevatedButton(
+              onPressed: () => showBirthdayExperience(context),
+              child: const Text('Sürprizi aç'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Sürprizi aç'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('birthday-back')), findsOneWidget);
+    expect(find.byKey(const Key('birthday-top-close')), findsOneWidget);
+    expect(find.text('Sevgili Ceyda,'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('birthday-back')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('birthday-back')), findsNothing);
+    expect(find.text('Sürprizi aç'), findsOneWidget);
   });
 
   testWidgets('sohbetten haftalık plan kanıtı gönderilir', (

@@ -173,6 +173,8 @@ class _AddScheduleSheetState extends ConsumerState<_AddScheduleSheet> {
                     ),
                   ),
                   IconButton(
+                    key: const Key('schedule-sheet-close'),
+                    tooltip: 'Kapat',
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(
                       Icons.close_rounded,

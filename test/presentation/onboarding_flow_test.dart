@@ -80,6 +80,64 @@ void main() {
     expect(find.text('Devam etmek için adını yaz.'), findsOneWidget);
   });
 
+  testWidgets('sistem geri tuşu onboarding adımını geri alır', (
+    WidgetTester tester,
+  ) async {
+    await _pumpApp(tester);
+
+    await tester.enterText(
+      find.byKey(const Key('onboarding-name-field')),
+      'Yusuf',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('role-student')));
+    await tester.pump();
+    await tester.tap(find.text('Devam Et'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 / 4'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 / 4'), findsOneWidget);
+    expect(find.text('Sen kimsin?'), findsOneWidget);
+    expect(find.byKey(const Key('onboarding-exit-dialog')), findsNothing);
+  });
+
+  testWidgets('onboarding kapatma onay ister ve vazgeçince temizlenir', (
+    WidgetTester tester,
+  ) async {
+    await _pumpApp(tester);
+
+    await tester.tap(find.byKey(const Key('onboarding-exit')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('onboarding-exit-dialog')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('onboarding-exit-cancel')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('onboarding-exit-dialog')), findsNothing);
+    expect(find.byType(OnboardingScreen), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('onboarding-name-field')),
+      'Geçici İsim',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('onboarding-exit')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('onboarding-exit-dialog')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('onboarding-exit-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 / 4'), findsOneWidget);
+    expect(find.text('Sen kimsin?'), findsOneWidget);
+    final TextField nameField = tester.widget<TextField>(
+      find.byKey(const Key('onboarding-name-field')),
+    );
+    expect(nameField.controller?.text, isEmpty);
+  });
+
   testWidgets('onboarding cevapları dashboard ve kişisel görevleri üretir', (
     WidgetTester tester,
   ) async {
@@ -150,9 +208,12 @@ void main() {
 
     await tester.tap(find.byKey(const Key('settings-button')));
     await tester.pumpAndSettle();
-    expect(find.text('Enerji modu'), findsOneWidget);
+    expect(find.byKey(const Key('settings-screen')), findsOneWidget);
+    expect(find.text('ENERJİ MODU'), findsOneWidget);
 
-    await tester.tap(find.text('Hedeflerimi sıfırla'));
+    final Finder resetRow = find.text('Hedeflerimi sıfırla');
+    await _scrollTo(tester, resetRow);
+    await tester.tap(resetRow);
     await tester.pumpAndSettle();
     expect(find.text('Yeniden başlamak istiyor musun?'), findsOneWidget);
 

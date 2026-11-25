@@ -128,82 +128,145 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
   }
 
+  Future<void> _confirmExit() async {
+    FocusScope.of(context).unfocus();
+    final bool? discard = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        key: const Key('onboarding-exit-dialog'),
+        title: const Text('Kurulumdan vazgeçilsin mi?'),
+        content: const Text(
+          'Girdiğin bilgiler bu oturumda silinir. Kurulum tamamlanmadan '
+          'ana ekrana geçilemez.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            key: const Key('onboarding-exit-cancel'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Devam Et'),
+          ),
+          FilledButton(
+            key: const Key('onboarding-exit-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Vazgeç'),
+          ),
+        ],
+      ),
+    );
+    if (discard != true || !mounted) return;
+    _nameController.clear();
+    _fieldController.clear();
+    setState(() {
+      _draft = UserSetup.empty;
+      _step = 0;
+    });
+    if (_pageController.hasClients) _pageController.jumpToPage(0);
+  }
+
+  void _handleSystemBack() {
+    if (FocusScope.of(context).hasFocus) {
+      FocusScope.of(context).unfocus();
+      return;
+    }
+    if (_step > 0) {
+      _back();
+      return;
+    }
+    _confirmExit();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: Stack(
-        children: <Widget>[
-          const Positioned(
-            top: -140,
-            right: -90,
-            child: _AuraBlob(color: AppColors.primary, size: 340),
-          ),
-          const Positioned(
-            top: 160,
-            left: -130,
-            child: _AuraBlob(color: AppColors.accentBlue, size: 280),
-          ),
-          SafeArea(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: AppConstants.maxContentWidth,
-                ),
-                child: Column(
-                  children: <Widget>[
-                    _Header(step: _step, stepCount: _stepCount),
-                    _StepProgress(step: _step, stepCount: _stepCount),
-                    Expanded(
-                      child: PageView(
-                        controller: _pageController,
-                        physics: const NeverScrollableScrollPhysics(),
-                        children: <Widget>[
-                          StepIdentity(
-                            setup: _draft,
-                            nameController: _nameController,
-                            onNameChanged: _applyName,
-                            onRoleChanged: _applyRole,
-                          ),
-                          StepDetails(
-                            setup: _draft,
-                            fieldController: _fieldController,
-                            onFieldChanged: _applyField,
-                            onGradeChanged: _applyGrade,
-                            onWorkloadChanged: _applyWorkload,
-                          ),
-                          StepGoals(setup: _draft, onToggle: _toggleGoal),
-                          StepSummary(
-                            setup: _draft,
-                            onTempoChanged: _applyTempo,
-                          ),
-                        ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, Object? result) {
+        if (didPop) return;
+        _handleSystemBack();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: Stack(
+          children: <Widget>[
+            const Positioned(
+              top: -140,
+              right: -90,
+              child: _AuraBlob(color: AppColors.primary, size: 340),
+            ),
+            const Positioned(
+              top: 160,
+              left: -130,
+              child: _AuraBlob(color: AppColors.accentBlue, size: 280),
+            ),
+            SafeArea(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: AppConstants.maxContentWidth,
+                  ),
+                  child: Column(
+                    children: <Widget>[
+                      _Header(
+                        step: _step,
+                        stepCount: _stepCount,
+                        onExit: _confirmExit,
                       ),
-                    ),
-                    _BottomBar(
-                      step: _step,
-                      stepCount: _stepCount,
-                      canContinue: _canContinue,
-                      hint: _hint,
-                      onBack: _back,
-                      onNext: _next,
-                    ),
-                  ],
+                      _StepProgress(step: _step, stepCount: _stepCount),
+                      Expanded(
+                        child: PageView(
+                          controller: _pageController,
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: <Widget>[
+                            StepIdentity(
+                              setup: _draft,
+                              nameController: _nameController,
+                              onNameChanged: _applyName,
+                              onRoleChanged: _applyRole,
+                            ),
+                            StepDetails(
+                              setup: _draft,
+                              fieldController: _fieldController,
+                              onFieldChanged: _applyField,
+                              onGradeChanged: _applyGrade,
+                              onWorkloadChanged: _applyWorkload,
+                            ),
+                            StepGoals(setup: _draft, onToggle: _toggleGoal),
+                            StepSummary(
+                              setup: _draft,
+                              onTempoChanged: _applyTempo,
+                            ),
+                          ],
+                        ),
+                      ),
+                      _BottomBar(
+                        step: _step,
+                        stepCount: _stepCount,
+                        canContinue: _canContinue,
+                        hint: _hint,
+                        onBack: _back,
+                        onNext: _next,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.step, required this.stepCount});
+  const _Header({
+    required this.step,
+    required this.stepCount,
+    required this.onExit,
+  });
 
   final int step;
   final int stepCount;
+  final VoidCallback onExit;
 
   @override
   Widget build(BuildContext context) {
@@ -260,6 +323,18 @@ class _Header extends StatelessWidget {
             label: '${step + 1} / $stepCount',
             color: AppColors.primary,
             background: AppColors.primary.withValues(alpha: 0.08),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          IconButton(
+            key: const Key('onboarding-exit'),
+            tooltip: 'Vazgeç',
+            onPressed: onExit,
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(
+              Icons.close_rounded,
+              size: 19,
+              color: AppColors.textTertiary,
+            ),
           ),
         ],
       ),
