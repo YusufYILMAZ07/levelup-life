@@ -48,3 +48,6 @@ app.*.map.json
 /android/key.properties
 /android/*.jks
 /android/*.keystore
+# Uppercase/başka konumlarda türetilen keystore'lar da korunur.
+*.jks
+*.keystore

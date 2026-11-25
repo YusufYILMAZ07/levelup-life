@@ -198,7 +198,7 @@ abstract final class PushPayloads {
       roomCode: roomCode,
       role: senderId,
     ),
-    'headings': 'LevelUp Life · OneSignal 💞',
+    'headings': 'CEYYUS · OneSignal 💞',
     'contents': '$senderName sana kapalıyken de ulaşabilir 🔔',
     'data': <String, dynamic>{
       'type': 'test',

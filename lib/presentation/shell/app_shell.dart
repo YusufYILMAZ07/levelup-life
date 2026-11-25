@@ -188,6 +188,9 @@ class _NavButton extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   tab.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
                   style: AppTypography.caption.copyWith(
                     color: color,
                     fontWeight: selected ? FontWeight.w800 : FontWeight.w600,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/pin_lock_controller.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/theme.dart';
 import '../../domain/entities/entities.dart';
 import '../../services/app_settings.dart';
@@ -162,6 +163,15 @@ class _PinLockScreenState extends ConsumerState<PinLockScreen> {
                       ],
                     ),
                     const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      AppConstants.appName,
+                      style: AppTypography.label.copyWith(
+                        color: AppColors.textTertiary,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 2.6,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
                     Text(
                       'Yusuf & Ceyda',
                       style: AppTypography.title.copyWith(

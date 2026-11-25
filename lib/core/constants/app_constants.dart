@@ -5,9 +5,17 @@
 /// burada tek noktadan yönetilir.
 abstract final class AppConstants {
   // ── Ürün kimliği ─────────────────────────────────────────────────────────
-  static const String appName = 'LevelUp Life';
+  /// Kullanıcıya görünen marka adı (v6.4: CEYYUS).
+  ///
+  /// Paket adı (`levelup_life`), `applicationId`, bundle id ve yerel depolama
+  /// anahtarları **bilinçli olarak** değiştirilmez: mevcut kullanıcı verisi ve
+  /// import'lar bozulmadan yalnızca görünen ad yenilenir.
+  static const String appName = 'CEYYUS';
   static const String appTagline = 'Hayatını seviye atlat.';
-  static const String appVersion = '6.1.0';
+  static const String appVersion = '6.4.0';
+
+  /// Yedek dosyalarında / paylaşımda görünen marka satırı.
+  static const String appBrandLine = 'CEYYUS · Yusuf & Ceyda';
 
   // ── İlerleme sınırları ───────────────────────────────────────────────────
   static const int minLevel = 1;

@@ -79,7 +79,7 @@ class CoupleDuelCard extends ConsumerWidget {
         );
       },
     );
-    if (picked == null) return;
+    if (picked == null || !context.mounted) return;
     ref.read(gameProvider.notifier).setStake(picked);
   }
 

@@ -112,12 +112,16 @@ class CoupleTopBar extends ConsumerWidget {
                   children: <Widget>[
                     const Text('🎂', style: TextStyle(fontSize: 13)),
                     const SizedBox(width: AppSpacing.xs),
-                    Text(
-                      'Doğum Günü Sürprizi',
-                      style: AppTypography.caption.copyWith(
-                        color: CouplePalette.ceyda,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
+                    Flexible(
+                      child: Text(
+                        'Doğum Günü Sürprizi',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.caption.copyWith(
+                          color: CouplePalette.ceyda,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 2),

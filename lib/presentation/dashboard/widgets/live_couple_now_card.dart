@@ -96,13 +96,15 @@ class LiveCoupleNowCard extends ConsumerWidget {
                     ),
                   ),
                 ),
-                InfoPill(
-                  label: free == null
-                      ? 'Ortak boşluk yok'
-                      : 'Ortak boşluk ${free.durationLabel}',
-                  color: CouplePalette.ceyda,
-                  icon: Icons.favorite_rounded,
-                  dense: true,
+                Flexible(
+                  child: InfoPill(
+                    label: free == null
+                        ? 'Ortak boşluk yok'
+                        : 'Ortak boşluk ${free.durationLabel}',
+                    color: CouplePalette.ceyda,
+                    icon: Icons.favorite_rounded,
+                    dense: true,
+                  ),
                 ),
               ],
             ),
@@ -448,14 +450,17 @@ class _SharedFreePill extends StatelessWidget {
               ),
             ),
           ),
-          Text(
-            free == null ? 'yok' : '${free.label} · ${free.durationLabel}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.caption.copyWith(
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w700,
-              fontSize: 10,
+          Flexible(
+            child: Text(
+              free == null ? 'yok' : '${free.label} · ${free.durationLabel}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w700,
+                fontSize: 10,
+              ),
             ),
           ),
         ],

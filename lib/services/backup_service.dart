@@ -80,7 +80,7 @@ abstract final class BackupService {
         entry.key.toString(): entry.value,
     };
     if (map['app']?.toString() != appId) {
-      throw const BackupException('Bu dosya LevelUp Life yedeği değil.');
+      throw const BackupException('Bu dosya CEYYUS yedeği değil.');
     }
     // Biçim sürümü: bilinmeyen/yeni biçim sessizce okunmaz.
     final int backupVersion = _asInt(map['backup_version'], 1);

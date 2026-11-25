@@ -68,7 +68,7 @@ abstract final class NotificationTexts {
         "'$emoji ${block.title}' planın başlıyor!";
   }
 
-  static String testTitle() => 'LevelUp Life · test 🌸';
+  static String testTitle() => 'CEYYUS · test 🌸';
 
   static String testBody() =>
       'Bildirimler hazır! Yusuf & Ceyda bildirimlerini buradan görecek 💞';

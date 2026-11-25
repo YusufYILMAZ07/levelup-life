@@ -2223,7 +2223,7 @@ class _BackupSettings extends ConsumerWidget {
     try {
       await Share.share(
         json,
-        subject: 'LevelUp Life yedeği',
+        subject: 'CEYYUS yedeği',
         sharePositionOrigin: null,
       );
     } catch (_) {

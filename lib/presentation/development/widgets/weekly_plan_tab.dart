@@ -582,91 +582,95 @@ class _BlockActionsSheet extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: AppRadii.pillAll,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: AppRadii.pillAll,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: <Widget>[
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: <Widget>[
+                  Text(
+                    block.category.emoji,
+                    style: const TextStyle(fontSize: 20),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          block.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.subtitle.copyWith(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          '${block.weekdayLabel} · ${block.timeRangeLabel} · '
+                          '${block.durationLabel}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.textTertiary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (block.locationOrNote.isNotEmpty) ...<Widget>[
+                const SizedBox(height: AppSpacing.xs + 1),
                 Text(
-                  block.category.emoji,
-                  style: const TextStyle(fontSize: 20),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        block.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.subtitle.copyWith(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      Text(
-                        '${block.weekdayLabel} · ${block.timeRangeLabel} · '
-                        '${block.durationLabel}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.textTertiary,
-                        ),
-                      ),
-                    ],
+                  '📍 ${block.locationOrNote}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ],
-            ),
-            if (block.locationOrNote.isNotEmpty) ...<Widget>[
-              const SizedBox(height: AppSpacing.xs + 1),
-              Text(
-                '📍 ${block.locationOrNote}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.caption.copyWith(
-                  color: AppColors.textSecondary,
-                ),
+              const SizedBox(height: AppSpacing.lg),
+              _SheetAction(
+                key: const Key('schedule-action-complete'),
+                icon: completed
+                    ? Icons.undo_rounded
+                    : Icons.check_circle_rounded,
+                label: completed
+                    ? 'Tamamlamayı geri al'
+                    : 'Tamamla (+${SchedulePlanner.completionXp} XP)',
+                color: completed ? AppColors.textSecondary : AppColors.success,
+                onTap: () => Navigator.of(context).pop('complete'),
+              ),
+              _SheetAction(
+                key: const Key('schedule-action-proof'),
+                icon: Icons.photo_camera_rounded,
+                label: 'Kanıt fotoğrafı gönder',
+                color: accent,
+                onTap: () => Navigator.of(context).pop('proof'),
+              ),
+              _SheetAction(
+                key: const Key('schedule-action-delete'),
+                icon: Icons.delete_outline_rounded,
+                label: 'Plandan sil',
+                color: AppColors.danger,
+                onTap: () => Navigator.of(context).pop('delete'),
               ),
             ],
-            const SizedBox(height: AppSpacing.lg),
-            _SheetAction(
-              key: const Key('schedule-action-complete'),
-              icon: completed ? Icons.undo_rounded : Icons.check_circle_rounded,
-              label: completed
-                  ? 'Tamamlamayı geri al'
-                  : 'Tamamla (+${SchedulePlanner.completionXp} XP)',
-              color: completed ? AppColors.textSecondary : AppColors.success,
-              onTap: () => Navigator.of(context).pop('complete'),
-            ),
-            _SheetAction(
-              key: const Key('schedule-action-proof'),
-              icon: Icons.photo_camera_rounded,
-              label: 'Kanıt fotoğrafı gönder',
-              color: accent,
-              onTap: () => Navigator.of(context).pop('proof'),
-            ),
-            _SheetAction(
-              key: const Key('schedule-action-delete'),
-              icon: Icons.delete_outline_rounded,
-              label: 'Plandan sil',
-              color: AppColors.danger,
-              onTap: () => Navigator.of(context).pop('delete'),
-            ),
-          ],
+          ),
         ),
       ),
     );

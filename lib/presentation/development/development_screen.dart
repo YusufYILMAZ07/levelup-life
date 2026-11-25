@@ -750,10 +750,12 @@ class _QuickActionTile extends StatelessWidget {
                 children: <Widget>[
                   Text(action.emoji, style: const TextStyle(fontSize: 18)),
                   const Spacer(),
-                  InfoPill(
-                    label: '+${action.points} XP',
-                    color: accent,
-                    dense: true,
+                  Flexible(
+                    child: InfoPill(
+                      label: '+${action.points} XP',
+                      color: accent,
+                      dense: true,
+                    ),
                   ),
                 ],
               ),
@@ -875,13 +877,15 @@ class _LoveNoteCard extends ConsumerWidget {
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
         title: const Text('Aşk notu ekle'),
-        content: TextField(
-          key: const Key('love-note-input'),
-          controller: controller,
-          maxLines: 3,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Ceyda\'ya söylemek istediğin bir şey…',
+        content: SingleChildScrollView(
+          child: TextField(
+            key: const Key('love-note-input'),
+            controller: controller,
+            maxLines: 3,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'Ceyda\'ya söylemek istediğin bir şey…',
+            ),
           ),
         ),
         actions: <Widget>[
@@ -898,7 +902,8 @@ class _LoveNoteCard extends ConsumerWidget {
       ),
     );
     controller.dispose();
-    if (note == null || note.isEmpty) return;
+    // Dialog kapandıktan sonra widget ağaçtan çıkmış olabilir.
+    if (note == null || note.isEmpty || !context.mounted) return;
     ref.read(gameProvider.notifier).addLoveNote(note);
   }
 

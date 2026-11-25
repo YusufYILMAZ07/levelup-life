@@ -73,7 +73,7 @@ class _AddScheduleSheetState extends ConsumerState<_AddScheduleSheet> {
         child: child ?? const SizedBox.shrink(),
       ),
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     final int minutes = (picked.hour * 60 + picked.minute).clamp(0, 24 * 60);
     setState(() {
       if (isStart) {

@@ -1,7 +1,7 @@
 name: levelup_life
-description: "Yusuf & Ceyda · ortak hayatı seviye atlatan çift uygulaması."
+description: "CEYYUS · Yusuf & Ceyda ortak hayatını seviye atlatan çift uygulaması."
 publish_to: 'none'
-version: 6.3.0+9
+version: 6.4.0+10
 
 environment:
   sdk: ^3.11.5
@@ -30,6 +30,44 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # CEYYUS marka görselleri: ikon + açılış ekranı üretimi.
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.6
 
 flutter:
   uses-material-design: true
+
+# ── CEYYUS uygulama ikonu ──────────────────────────────────────────────────
+# Üretim: python3 tool/generate_ceyyus_icon.py
+# Uygulama: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/icon/ceyyus_icon.png"
+  adaptive_icon_background: "#1B1033"
+  adaptive_icon_foreground: "assets/icon/ceyyus_icon_foreground.png"
+  adaptive_icon_monochrome: "assets/icon/ceyyus_icon_monochrome.png"
+  min_sdk_android: 23
+  web:
+    generate: true
+    image_path: "assets/icon/ceyyus_icon.png"
+    background_color: "#1B1033"
+    theme_color: "#4F46E5"
+
+# ── CEYYUS açılış (splash) ekranı ─────────────────────────────────────────
+# Üretim: python3 tool/generate_ceyyus_icon.py
+# Uygulama: dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#F8FAFC"
+  color_dark: "#141026"
+  image: "assets/icon/ceyyus_splash.png"
+  image_dark: "assets/icon/ceyyus_splash.png"
+  android: true
+  ios: true
+  web: true
+  android_12:
+    image: "assets/icon/ceyyus_splash.png"
+    icon_background_color: "#1B1033"
+    color: "#F8FAFC"
+    color_dark: "#141026"

@@ -1,4 +1,4 @@
-# LevelUp Life ⚡ — Couple Edition v6.3 (Yusuf & Ceyda)
+# CEYYUS ⚡ — Couple Edition v6.4 (Yusuf & Ceyda)
 
 Hayatını bir RPG'ye çeviren Flutter uygulaması — **iki kişilik** sürüm. Günlük
 görevlerini tamamla, XP kazan, seviye atla, 5 temel statını geliştir ve gün
@@ -49,6 +49,21 @@ bildirim alabilirsin.
 > bildirime dokununca mesaj en fazla 2 sayfa geriye yüklenir, `ensureVisible`
 > ile tam hizalanır ve kısa bir vurgu animasyonu gösterilir; bulunamazsa
 > "eski geçmişte veya silinmiş" bilgisi verilir.
+>
+> **v6.4 CEYYUS marka & mağaza hazırlığı:** kullanıcıya görünen tüm adlar
+> **CEYYUS** oldu (Android etiketi, iOS `CFBundleDisplayName`, web başlığı/PWA
+> manifesti, bildirim/push başlıkları, biyometri istemi, yedek metinleri).
+> Veri güvenliği için Dart paket adı (`levelup_life`), `applicationId`, bundle
+> id, yedek `app` kimliği (`levelup-life`), `SharedPreferences`/SecureStorage
+> anahtarları ve Supabase tablo/kanal adları **değişmedi**. Yeni CEYYUS ikonu
+> (kalp + CY monogramı + seviye kıvılcımı) ve native açılış ekranı üretildi.
+> Android release R8 küçültme + kaynak budama ve eklenti `keep` kuralları
+> eklendi (`proguard-rules.pro`), `INTERNET`/`ACCESS_NETWORK_STATE` izinleri
+> açıkça tanımlandı. iOS `UIBackgroundModes` içine `fetch` eklendi. 360×640 dp
+> + 1.3× sistem yazı ölçeğinde dört sekme ve alt sayfalar kaydırılarak
+> **RenderFlex taşması olmadığını** doğrulayan widget testi eklendi; bulunan
+> gerçek taşmalar (Gelişim üst barı, Bugün canlı kartı, hızlı eylem çipleri,
+> kapsül özeti, mood kapsül gridi) giderildi.
 
 ## Özellikler
 
@@ -273,21 +288,24 @@ push'u `duplicate:true` ile durdurur. REST anahtarı istemciye hiç inmez.
 ## İzinler
 
 - **iOS** (`ios/Runner/Info.plist`): kamera, fotoğraf galerisi, mikrofon,
-  **Face ID (`NSFaceIDUsageDescription`)** ve bildirim açıklamaları;
-  `UIBackgroundModes → remote-notification`,
-  `CADisableMinimumFrameDurationOnPhone` (ProMotion). `AppDelegate.swift` ön
-  planda da bildirim göstermek için `UNUserNotificationCenter` delegesini atar.
-  `Runner.entitlements` Debug'da `aps-environment: development`,
+  **Face ID (`NSFaceIDUsageDescription`)** ve bildirim açıklamaları (Türkçe,
+  CEYYUS markalı); `UIBackgroundModes → remote-notification + fetch`,
+  `CADisableMinimumFrameDurationOnPhone` (ProMotion),
+  `ITSAppUsesNonExemptEncryption = false` (yalnız HTTPS). `AppDelegate.swift`
+  ön planda da bildirim göstermek için `UNUserNotificationCenter` delegesini
+  atar. `Runner.entitlements` Debug'da `aps-environment: development`,
   `RunnerRelease.entitlements` Release/Profile'da `production` taşır;
   deployment target **iOS 15.0**'dır.
-- **Android** (`AndroidManifest.xml`): `CAMERA`, `RECORD_AUDIO`,
-  `READ_MEDIA_IMAGES/VIDEO`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`,
-  `SCHEDULE_EXACT_ALARM`, zamanlanmış bildirim alıcıları. Exact alarm izni
-  yoksa `NotificationService` otomatik olarak `inexactAllowWhileIdle`'a düşer.
-  `local_auth` için `MainActivity` **`FlutterFragmentActivity`** türetir;
-  `flutter_local_notifications` için `build.gradle.kts` içinde core library
-  desugaring açıktır. Release imzası `android/key.properties`'ten okunur
-  (dosya yoksa debug anahtarı + Gradle uyarısı; mağaza öncesi zorunlu).
+- **Android** (`AndroidManifest.xml`): `INTERNET`, `ACCESS_NETWORK_STATE`,
+  `CAMERA`, `RECORD_AUDIO`, `READ_MEDIA_IMAGES/VIDEO`, `POST_NOTIFICATIONS`,
+  `RECEIVE_BOOT_COMPLETED`, `SCHEDULE_EXACT_ALARM`, zamanlanmış bildirim
+  alıcıları. Exact alarm izni yoksa `NotificationService` otomatik olarak
+  `inexactAllowWhileIdle`'a düşer. `local_auth` için `MainActivity`
+  **`FlutterFragmentActivity`** türetir; `flutter_local_notifications` için
+  `build.gradle.kts` içinde core library desugaring açıktır. Release'te R8
+  küçültme + kaynak budama ve `android/app/proguard-rules.pro` keep kuralları
+  etkindir. Release imzası `android/key.properties`'ten okunur (dosya yoksa
+  debug anahtarı + Gradle uyarısı; mağaza öncesi zorunlu).
 
 ## Kurulum
 
@@ -298,6 +316,17 @@ flutter run -d ios         # iPhone (kamera + galeri + bildirimler + Face ID)
 flutter build web --release
 flutter build ios --simulator --no-codesign   # iOS 15+ / OneSignal
 ```
+
+Marka görselleri (ikon + splash) gerektiğinde yeniden üretilir:
+
+```bash
+python3 tool/generate_ceyyus_icon.py
+dart run flutter_launcher_icons
+dart run flutter_native_splash:create
+```
+
+Android telefona kurulacak imzalı APK/AAB ve iPhone Archive adımları için
+[`docs/RELEASE_CEYYUS.md`](docs/RELEASE_CEYYUS.md) dosyasına bak.
 
 Gerçek cihazda imzalı build için Apple Developer hesabında Push Notifications
 hakkı ve geçerli bir provisioning profile gerekir.
@@ -395,13 +424,19 @@ Bilinçli olarak **v6.3'e bırakılanlar**:
 ## Kalite kontrolleri
 
 ```bash
-flutter analyze            # No issues found!
-flutter test               # tüm birim + widget testleri
+flutter pub get
+python3 tool/generate_ceyyus_icon.py          # ikon/splash kaynak PNG'ler
+dart run flutter_launcher_icons
+dart run flutter_native_splash:create
+flutter analyze                                # No issues found!
+flutter test                                   # 396 test (birim + widget)
 flutter build web --release
+flutter build apk --release                    # Android telefon (imzalı)
+flutter build ios --release                    # iPhone (Xcode imzası)
 flutter build ios --simulator --no-codesign
 
 # Bulut tarafı (opsiyonel)
-supabase db push
+supabase db push                               # v6 → v6.3 migration sırası korunur
 supabase functions deploy send-couple-push
 ```
 
@@ -426,7 +461,9 @@ gece yarısı sessiz saat hesabı ve katı PBKDF2 girdisi, **v6.3 regresyonları
 uçuştaki push sırasında gelen değişikliğin trailing push ile gönderilmesi,
 tam alarm izni değişiminde planların yeniden zamanlanması, `dequeueDelete`
 yazımı sürerken `clear()` çağrıldığında `pendingDeletes` kalıntısı kalmaması
-ve kurtarma sonuçlarının (`ok | invalid | locked`) doğru eşlenmesi.
+ve kurtarma sonuçlarının (`ok | invalid | locked`) doğru eşlenmesi, **v6.4
+regresyonları**: 360×640 dp + 1.3× sistem yazı ölçeğinde dört sekmenin ve alt
+sekmelerin kaydırılarak `RenderFlex` taşması olmadan çizilmesi.
 
 ## Lisans
 

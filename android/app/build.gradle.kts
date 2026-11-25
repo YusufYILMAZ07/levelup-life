@@ -69,6 +69,15 @@ android {
 
     buildTypes {
         release {
+            // CEYYUS v6.4: R8 küçültme + kaynak budama. Eklenti keep kuralları
+            // `android/app/proguard-rules.pro` içinde; cihazda smoke test
+            // yapılmadan bu blok gevşetilmemeli.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {

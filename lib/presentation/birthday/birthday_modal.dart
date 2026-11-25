@@ -280,14 +280,16 @@ class _BirthdayLetter extends ConsumerWidget {
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('Mektubu kişiselleştir'),
-          content: TextField(
-            key: const Key('birthday-letter-input'),
-            controller: controller,
-            autofocus: true,
-            maxLines: 5,
-            maxLength: 320,
-            decoration: const InputDecoration(
-              hintText: 'Ceyda\'ya söylemek istediklerin…',
+          content: SingleChildScrollView(
+            child: TextField(
+              key: const Key('birthday-letter-input'),
+              controller: controller,
+              autofocus: true,
+              maxLines: 5,
+              maxLength: 320,
+              decoration: const InputDecoration(
+                hintText: 'Ceyda\'ya söylemek istediklerin…',
+              ),
             ),
           ),
           actions: <Widget>[
@@ -305,7 +307,7 @@ class _BirthdayLetter extends ConsumerWidget {
       },
     );
     controller.dispose();
-    if (next == null) return;
+    if (next == null || !context.mounted) return;
     ref.read(gameProvider.notifier).setBirthdayMessage(next);
   }
 
@@ -586,14 +588,16 @@ class _NoteSurprise extends ConsumerWidget {
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('Kendi notunu yaz'),
-          content: TextField(
-            key: const Key('birthday-custom-note-input'),
-            controller: controller,
-            autofocus: true,
-            maxLines: 3,
-            maxLength: 160,
-            decoration: const InputDecoration(
-              hintText: 'Neden sen? Aklına geleni yaz…',
+          content: SingleChildScrollView(
+            child: TextField(
+              key: const Key('birthday-custom-note-input'),
+              controller: controller,
+              autofocus: true,
+              maxLines: 3,
+              maxLength: 160,
+              decoration: const InputDecoration(
+                hintText: 'Neden sen? Aklına geleni yaz…',
+              ),
             ),
           ),
           actions: <Widget>[

@@ -73,7 +73,7 @@ final class BiometricService {
 
   /// Kullanıcıdan biyometrik doğrulama ister.
   Future<BiometricResult> authenticate({
-    String reason = 'LevelUp Life · özel alanı aç',
+    String reason = 'CEYYUS · özel alanı aç',
   }) async {
     if (!isSupported) {
       return const BiometricResult(

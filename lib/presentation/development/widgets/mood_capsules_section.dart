@@ -140,6 +140,62 @@ class MoodCapsulesSection extends ConsumerWidget {
       );
   }
 
+  /// Tek kapsül kartı: iki sütunda eşit yükseklik, içerik kadar yer kaplar.
+  Widget _capsuleTile(
+    BuildContext context,
+    WidgetRef ref,
+    _MoodCapsule capsule,
+  ) {
+    return SoftCard(
+      key: Key('mood-capsule-${capsule.id}'),
+      onTap: () => _open(context, ref, capsule),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      gradient: AppGradients.aura(capsule.color, peakOpacity: 0.13),
+      borderColor: capsule.color.withValues(alpha: 0.24),
+      shadows: const <BoxShadow>[],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Text(capsule.emoji, style: const TextStyle(fontSize: 21)),
+              const Spacer(),
+              Icon(
+                Icons.lock_open_rounded,
+                size: 14,
+                color: capsule.color.withValues(alpha: 0.70),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            capsule.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.subtitle.copyWith(
+              color: AppColors.textPrimary,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            capsule.subtitle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textTertiary,
+              fontSize: 9.5,
+              height: 1.25,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Column(
@@ -149,67 +205,25 @@ class MoodCapsulesSection extends ConsumerWidget {
           title: 'Anlık Duygu Kapsülleri',
           subtitle: 'Zor bir gün mü? Doğru kapsülü aç.',
         ),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _capsules.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: AppSpacing.sm,
-            crossAxisSpacing: AppSpacing.sm,
-            childAspectRatio: 1.24,
+        // 360×640 + 1.3× yazı ölçeğinde sabit `childAspectRatio` taşma
+        // üretiyordu; kartlar artık içeriğe göre büyür (IntrinsicHeight).
+        for (int i = 0; i < _capsules.length; i += 2) ...<Widget>[
+          if (i > 0) const SizedBox(height: AppSpacing.sm),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Expanded(child: _capsuleTile(context, ref, _capsules[i])),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: i + 1 < _capsules.length
+                      ? _capsuleTile(context, ref, _capsules[i + 1])
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
           ),
-          itemBuilder: (BuildContext context, int index) {
-            final _MoodCapsule capsule = _capsules[index];
-            return SoftCard(
-              key: Key('mood-capsule-${capsule.id}'),
-              onTap: () => _open(context, ref, capsule),
-              padding: const EdgeInsets.all(AppSpacing.md),
-              gradient: AppGradients.aura(capsule.color, peakOpacity: 0.13),
-              borderColor: capsule.color.withValues(alpha: 0.24),
-              shadows: const <BoxShadow>[],
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      Text(capsule.emoji, style: const TextStyle(fontSize: 21)),
-                      const Spacer(),
-                      Icon(
-                        Icons.lock_open_rounded,
-                        size: 14,
-                        color: capsule.color.withValues(alpha: 0.70),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  Text(
-                    capsule.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.subtitle.copyWith(
-                      color: AppColors.textPrimary,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                      height: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    capsule.subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.textTertiary,
-                      fontSize: 9.5,
-                      height: 1.25,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
+        ],
       ],
     );
   }

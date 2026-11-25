@@ -155,25 +155,15 @@ class _CapsuleSummary extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: <Widget>[
-                        Text(
-                          '$points',
-                          style: AppTypography.numericLarge.copyWith(
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'puan',
-                          style: AppTypography.caption.copyWith(
-                            color: AppColors.textTertiary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
+                    // Üst etiket zaten "Birleşik Gelişim Puanı"; satır içi
+                    // "puan" tekrarı dar ekranda taşmaya yol açıyordu.
+                    Text(
+                      '$points',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.numericLarge.copyWith(
+                        color: AppColors.textPrimary,
+                      ),
                     ),
                   ],
                 ),
@@ -471,7 +461,8 @@ class _CapsuleRevealDialog extends StatelessWidget {
         : capsule.rewardMessage;
 
     return Center(
-      child: Padding(
+      // Küçük ekran + büyük yazı ölçeğinde içerik taşmasın: kart kaydırılır.
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xl),
         child: Material(
           color: Colors.transparent,
