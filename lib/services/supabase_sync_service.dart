@@ -212,6 +212,15 @@ final class SupabaseSyncService implements CloudSyncBackend {
   static const String reclaimRoleRpc = 'reclaim_couple_role';
   static const int signedUrlSeconds = 7 * 24 * 60 * 60;
 
+  /// Kanal aboneliğinin kurulması için üst sınır.
+  static const Duration subscribeTimeout = Duration(seconds: 10);
+
+  /// Join `ok` döndükten sonra `postgres_changes` kurulumu sunucuda
+  /// başarısız olabiliyor (`Unable to subscribe to changes with given
+  /// parameters`); bu hata `subscribed` durumundan **sonra** `channelError`
+  /// olarak gelir. Başarı ilan etmeden önce bu kısa pencere beklenir.
+  static const Duration replicationGrace = Duration(milliseconds: 1200);
+
   /// Ayarlar → "SQL şemasını kopyala" düğmesinin içeriği.
   ///
   /// Tam şema depodaki migration dosyasındadır; buradaki metin yalnızca
@@ -352,85 +361,29 @@ alter publication supabase_realtime add table public.couple_rooms;
 
       // 3) Realtime: mesajlarda insert + update + delete, oda durumu,
       //    presence ve "yazıyor…" yayını.
-      final RealtimeChannel channel = client.channel(
-        'couple-room-${config.roomCode}',
-        opts: const RealtimeChannelConfig(self: true),
+      //
+      // Önce `room_code` filtreli abonelik denenir. Supabase Realtime bazı
+      // filtreleri reddediyorsa (`Unable to subscribe to changes with given
+      // parameters`) kanal filtresiz kurulur: RLS zaten yalnızca üye olunan
+      // odanın olaylarını iletir, `room_code` eşleşmesi istemcide ikinci kez
+      // doğrulanır. Böylece canlı bağlantı hiç kopmaz.
+      RealtimeChannel? channel = await _openChannel(
+        client,
+        config,
+        useRoomFilter: true,
       );
-      final List<PostgresChangeFilter> roomFilter = <PostgresChangeFilter>[
-        PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'room_code',
-          value: config.roomCode,
-        ),
-      ];
-      for (final PostgresChangeEvent event in <PostgresChangeEvent>[
-        PostgresChangeEvent.insert,
-        PostgresChangeEvent.update,
-        PostgresChangeEvent.delete,
-      ]) {
-        channel.onPostgresChanges(
-          event: event,
-          schema: 'public',
-          table: messagesTable,
-          filters: roomFilter,
-          callback: (PostgresChangePayload payload) =>
-              _handleMessageChange(event, payload),
+      if (channel == null) {
+        callbacks.onStatusChanged(
+          SyncStatus.connecting,
+          'Filtre uygulanamadı · filtresiz bağlanıyor…',
+        );
+        channel = await _openChannel(
+          client,
+          config,
+          useRoomFilter: false,
         );
       }
-      channel.onPostgresChanges(
-        event: PostgresChangeEvent.update,
-        schema: 'public',
-        table: roomsTable,
-        filters: roomFilter,
-        callback: _handleRoomPayload,
-      );
-      channel
-        ..onPresenceSync((_) => _emitPresence(channel, config))
-        ..onPresenceJoin((_) => _emitPresence(channel, config))
-        ..onPresenceLeave((_) => _emitPresence(channel, config))
-        ..onBroadcast(
-          event: 'typing',
-          callback: (Map<String, dynamic> payload) {
-            final Object? sender = payload['sender_id'];
-            if (sender?.toString() == config.deviceRole) return;
-            callbacks.onTypingChanged?.call(payload['typing'] == true);
-          },
-        );
-
-      // Abonelik sonucunu bekle; hata/zaman aşımında bağlantı kurulmaz.
-      final Completer<bool> subscribedCompleter = Completer<bool>();
-      channel.subscribe((RealtimeSubscribeStatus status, Object? error) {
-        if (status == RealtimeSubscribeStatus.subscribed) {
-          if (!subscribedCompleter.isCompleted) {
-            subscribedCompleter.complete(true);
-          }
-          return;
-        }
-        if (status == RealtimeSubscribeStatus.channelError ||
-            status == RealtimeSubscribeStatus.closed ||
-            status == RealtimeSubscribeStatus.timedOut) {
-          if (identical(_channel, channel)) {
-            callbacks.onStatusChanged(
-              SyncStatus.error,
-              'Bağlantı koptu · ${error ?? 'tekrar denenecek'}',
-            );
-          }
-          if (!subscribedCompleter.isCompleted) {
-            subscribedCompleter.complete(false);
-          }
-        }
-      });
-
-      final bool subscribed = await subscribedCompleter.future.timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => false,
-      );
-      if (!subscribed) {
-        try {
-          await client.removeChannel(channel);
-        } catch (_) {
-          // Kanal zaten kapanmış olabilir.
-        }
+      if (channel == null) {
         callbacks.onStatusChanged(SyncStatus.error, 'Kanal açılamadı.');
         return false;
       }
@@ -458,6 +411,121 @@ alter publication supabase_realtime add table public.couple_rooms;
     } finally {
       _connecting = false;
     }
+  }
+
+  /// Realtime kanalını kurar, aboneliği bekler ve kanalı döndürür.
+  ///
+  /// [useRoomFilter] `true` iken `INSERT`/`UPDATE` abonelikleri
+  /// `room_code = <oda>` filtresiyle kurulur. `DELETE` olayında Supabase
+  /// Realtime kolon filtresini **desteklemez**; bu dinleyici her zaman
+  /// filtresiz kurulur (RLS zaten yalnızca üye olunan odanın olaylarını
+  /// iletir, callback `room_code` alanını ikinci kez doğrular).
+  ///
+  /// Sunucu join'i `ok` döndürdükten sonra `postgres_changes` kurulumu
+  /// başarısız olursa hata gecikmeli bir `system` iletisiyle gelir ve
+  /// realtime istemcisi bunu `channelError` olarak iletir. Bu yüzden
+  /// `subscribed` görüldükten hemen sonra başarı ilan edilmez; kısa bir
+  /// [replicationGrace] penceresi beklenir. Başarısızlıkta kanal kaldırılır
+  /// ve `null` döner; bağlantı durumu çağırana bırakılır.
+  Future<RealtimeChannel?> _openChannel(
+    SupabaseClient client,
+    SyncConfig config, {
+    required bool useRoomFilter,
+  }) async {
+    final String roomCode = config.roomCode.toUpperCase();
+    final RealtimeChannel channel = client.channel(
+      'couple-room-$roomCode',
+      opts: const RealtimeChannelConfig(self: true),
+    );
+    final List<PostgresChangeFilter> roomFilter = <PostgresChangeFilter>[
+      PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'room_code',
+        value: roomCode,
+      ),
+    ];
+
+    void bindMessageEvent(PostgresChangeEvent event) {
+      channel.onPostgresChanges(
+        event: event,
+        schema: 'public',
+        table: messagesTable,
+        filters: useRoomFilter ? roomFilter : null,
+        callback: (PostgresChangePayload payload) =>
+            _handleMessageChange(event, payload),
+      );
+    }
+
+    bindMessageEvent(PostgresChangeEvent.insert);
+    bindMessageEvent(PostgresChangeEvent.update);
+    // DELETE: kolon filtresi desteklenmiyor → filtresiz dinlenir.
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.delete,
+      schema: 'public',
+      table: messagesTable,
+      callback: (PostgresChangePayload payload) =>
+          _handleMessageChange(PostgresChangeEvent.delete, payload),
+    );
+    channel.onPostgresChanges(
+      event: PostgresChangeEvent.update,
+      schema: 'public',
+      table: roomsTable,
+      filters: useRoomFilter ? roomFilter : null,
+      callback: _handleRoomPayload,
+    );
+    channel
+      ..onPresenceSync((_) => _emitPresence(channel, config))
+      ..onPresenceJoin((_) => _emitPresence(channel, config))
+      ..onPresenceLeave((_) => _emitPresence(channel, config))
+      ..onBroadcast(
+        event: 'typing',
+        callback: (Map<String, dynamic> payload) {
+          final Object? sender = payload['sender_id'];
+          if (sender?.toString() == config.deviceRole) return;
+          callbacks.onTypingChanged?.call(payload['typing'] == true);
+        },
+      );
+
+    final Completer<bool> ready = Completer<bool>();
+    Timer? graceTimer;
+    void settle(bool ok) {
+      graceTimer?.cancel();
+      if (!ready.isCompleted) ready.complete(ok);
+    }
+
+    channel.subscribe((RealtimeSubscribeStatus status, Object? error) {
+      if (status == RealtimeSubscribeStatus.subscribed) {
+        // Join `ok` gelse bile replication kurulumu sonradan düşebilir.
+        graceTimer ??= Timer(replicationGrace, () => settle(true));
+        return;
+      }
+      if (status == RealtimeSubscribeStatus.channelError &&
+          identical(_channel, channel)) {
+        // Bağlantı sonradan koptu; ayarlar ekranı bunu görsün.
+        callbacks.onStatusChanged(
+          SyncStatus.error,
+          'Bağlantı koptu · ${error ?? 'tekrar denenecek'}',
+        );
+      }
+      settle(false);
+    });
+
+    bool readyOk;
+    try {
+      readyOk = await ready.future.timeout(subscribeTimeout);
+    } on TimeoutException {
+      readyOk = false;
+    }
+    graceTimer?.cancel();
+    if (!readyOk) {
+      try {
+        await client.removeChannel(channel);
+      } catch (_) {
+        // Kanal zaten kapanmış olabilir.
+      }
+      return null;
+    }
+    return channel;
   }
 
   /// Bağlantı sonrası oda durumu + son 200 mesaj.
@@ -968,6 +1036,13 @@ alter publication supabase_realtime add table public.couple_rooms;
     return fallback;
   }
 
+  /// `room_code` değeri [expected] ile aynı mı? (büyük/küçük harf duyarsız)
+  static bool _sameRoom(Object? raw, String expected) {
+    final String room = raw?.toString().trim() ?? '';
+    if (room.isEmpty) return false;
+    return room.toUpperCase() == expected.trim().toUpperCase();
+  }
+
   void _handleMessageChange(
     PostgresChangeEvent event,
     PostgresChangePayload payload,
@@ -978,15 +1053,17 @@ alter publication supabase_realtime add table public.couple_rooms;
     if (event == PostgresChangeEvent.delete) {
       final String id = payload.oldRecord['id']?.toString() ?? '';
       final String room = payload.oldRecord['room_code']?.toString() ?? '';
-      if (room.isNotEmpty && room != config.roomCode) return;
+      // DELETE aboneliği filtresiz kuruldu: `room_code` döndüyse eşleşmeyen
+      // olayı istemcide ele (RLS zaten yalnızca üye olunan odayı iletir).
+      if (room.isNotEmpty && !_sameRoom(room, config.roomCode)) return;
       if (id.isEmpty) return;
       callbacks.onRemoteMessageDeleted(id);
       return;
     }
 
     final Map<String, dynamic> record = payload.newRecord;
-    final Object? room = record['room_code'];
-    if (room?.toString() != config.roomCode) return;
+    // Filtresiz fallback aboneliğinde de oda eşleşmesi doğrulanır.
+    if (!_sameRoom(record['room_code'], config.roomCode)) return;
     // Kendi yazdığımız satır echo'su (self: true) yoksayılır.
     if (record['sender_id']?.toString() == config.deviceRole) return;
     final Object? raw = record['payload'];
@@ -1014,7 +1091,7 @@ alter publication supabase_realtime add table public.couple_rooms;
     final SyncConfig? config = _config;
     if (config == null) return;
     final Map<String, dynamic> record = payload.newRecord;
-    if (record['room_code']?.toString() != config.roomCode) return;
+    if (!_sameRoom(record['room_code'], config.roomCode)) return;
     final Object? rawUpdated = record['updated_at'];
     final DateTime? updatedAt = rawUpdated is String
         ? DateTime.tryParse(rawUpdated)
