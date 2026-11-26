@@ -51,3 +51,4 @@ app.*.map.json
 # Uppercase/başka konumlarda türetilen keystore'lar da korunur.
 *.jks
 *.keystore
+.vercel
